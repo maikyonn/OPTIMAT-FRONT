@@ -77,7 +77,7 @@
     responseData = null;
     
     let local = "http://0.0.0.0:8000/api/v1/providers/match"
-    let online = "https://optimat-db.onrender.com/api/match"
+    let online = "https://optimat-db.onrender.com/api/v1/providers/match"
     try {
       const response = await fetch(online, {
         method: 'POST',
