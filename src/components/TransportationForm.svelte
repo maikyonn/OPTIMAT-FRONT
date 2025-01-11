@@ -1,0 +1,286 @@
+<script>
+  import { createEventDispatcher, onMount } from 'svelte';
+  import { zoneColors } from '../lib/stores';
+  const dispatch = createEventDispatcher();
+
+  // Helper function to format datetime-local string
+  function formatDateTimeLocal(date) {
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+  }
+
+  // Set default times
+  const now = new Date();
+  const fourHoursLater = new Date(now.getTime() + (4 * 60 * 60 * 1000));
+
+  export let loading = false;
+  export let error = null;
+  export let responseData = null;
+
+  let formData = {
+    departureTime: formatDateTimeLocal(now),
+    returnTime: formatDateTimeLocal(fourHoursLater),
+    originAddress: "1103 S California Blvd, Walnut Creek, CA 94596",
+    destinationAddress: "1275 Broadway Plaza, Walnut Creek, CA 94596",
+    eligibility: [],
+    equipment: [],
+    healthConditions: [],
+    needsCompanion: false,
+    allowsSharing: false
+  };
+
+  function handleSubmit() {
+    dispatch('submit', formData);
+  }
+
+  // Watch for changes to addresses using $: reactive statements
+  $: if (formData.originAddress) {
+    dispatch('originUpdate', formData.originAddress);
+  }
+
+  $: if (formData.destinationAddress) {
+    dispatch('destinationUpdate', formData.destinationAddress);
+  }
+
+  // Dispatch initial addresses on mount
+  onMount(() => {
+    dispatch('originUpdate', formData.originAddress);
+    dispatch('destinationUpdate', formData.destinationAddress);
+  });
+
+  function handleReturnToForm() {
+    responseData = null;
+    error = null;
+  }
+
+  function formatServiceHours(hoursString) {
+    try {
+      const hours = JSON.parse(hoursString);
+      if (!hours.hours?.[0]) return 'Hours not available';
+
+      const schedule = hours.hours[0];
+      const days = schedule.day.split('').map((day, index) => {
+        const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        return day === '1' ? weekdays[index] : null;
+      }).filter(Boolean).join(', ');
+
+      // Format time from "HHMM" to "HH:MM AM/PM"
+      const formatTime = (time) => {
+        const hour = parseInt(time.substring(0, 2));
+        const minute = time.substring(2);
+        const period = hour >= 12 ? 'PM' : 'AM';
+        const formattedHour = hour % 12 || 12;
+        return `${formattedHour}:${minute} ${period}`;
+      };
+
+      const start = formatTime(schedule.start);
+      const end = formatTime(schedule.end);
+
+      return `${days}: ${start} - ${end}`;
+    } catch {
+      return 'Hours not available';
+    }
+  }
+
+  function getProviderTypeLabel(type) {
+    const types = {
+      'ADA-para': 'ADA Paratransit',
+      'volunteer-driver': 'Volunteer Driver Program'
+    };
+    return types[type] || type;
+  }
+
+  function parseBookingInfo(bookingString) {
+    try {
+      const booking = JSON.parse(bookingString);
+      return booking.call || null;
+    } catch {
+      return null;
+    }
+  }
+</script>
+
+{#if responseData}
+  <div class="space-y-6 p-6">
+    <h2 class="text-xl font-semibold text-gray-900">Available Transportation Services</h2>
+    
+    <!-- Legend/Key Box -->
+    <div class="bg-white rounded-lg shadow p-6">
+      <h3 class="text-lg font-medium text-gray-900 mb-4">Service Providers</h3>
+      <div class="space-y-4">
+        {#each responseData.data as provider, index}
+          <div class="flex items-start space-x-4">
+            <!-- Color indicator -->
+            <div 
+              class="w-6 h-6 rounded flex-shrink-0 mt-1"
+              style="background-color: {$zoneColors[index % $zoneColors.length]}"
+            ></div>
+            
+            <!-- Service details -->
+            <div class="flex-1">
+              <h4 class="font-medium text-gray-900">{provider.provider_name}</h4>
+              <dl class="mt-2 text-sm text-gray-600 space-y-1">
+                <div class="flex">
+                  <dt class="font-medium w-24">Type:</dt>
+                  <dd>{getProviderTypeLabel(provider.provider_type)}</dd>
+                </div>
+                <div class="flex">
+                  <dt class="font-medium w-24">Service:</dt>
+                  <dd>{provider.routing_type.replace(/-/g, ' ')}</dd>
+                </div>
+                <div class="flex">
+                  <dt class="font-medium w-24">Hours:</dt>
+                  <dd>{formatServiceHours(provider.service_hours)}</dd>
+                </div>
+                <div class="flex">
+                  <dt class="font-medium w-24">Booking:</dt>
+                  <dd>
+                    {#if parseBookingInfo(provider.booking)}
+                      <a href="tel:{parseBookingInfo(provider.booking)}" class="text-blue-600 hover:underline">
+                        {parseBookingInfo(provider.booking)}
+                      </a>
+                    {:else}
+                      Contact provider
+                    {/if}
+                  </dd>
+                </div>
+                {#if provider.website}
+                  <div class="flex">
+                    <dt class="font-medium w-24">Website:</dt>
+                    <dd>
+                      <a href={provider.website} target="_blank" rel="noopener noreferrer" 
+                         class="text-blue-600 hover:underline">
+                        Visit website
+                      </a>
+                    </dd>
+                  </div>
+                {/if}
+              </dl>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+
+    <!-- Trip Details Summary -->
+    <div class="bg-gray-50 rounded-lg p-4 text-sm">
+      <h3 class="font-medium text-gray-900 mb-2">Your Trip Details</h3>
+      <div class="space-y-1 text-gray-600">
+        <p><span class="font-medium">From:</span> {formData.originAddress}</p>
+        <p><span class="font-medium">To:</span> {formData.destinationAddress}</p>
+        <p><span class="font-medium">Departure:</span> {new Date(formData.departureTime).toLocaleString()}</p>
+        <p><span class="font-medium">Return:</span> {new Date(formData.returnTime).toLocaleString()}</p>
+      </div>
+    </div>
+
+    <div class="flex justify-end">
+      <button
+        type="button"
+        class="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+        on:click={handleReturnToForm}
+      >
+        Submit Another Request
+      </button>
+    </div>
+  </div>
+
+{:else if error}
+  <div class="rounded-md bg-red-50 p-4">
+    <div class="flex">
+      <div class="flex-shrink-0">
+        <!-- You can add an error icon here -->
+      </div>
+      <div class="ml-3">
+        <h3 class="text-sm font-medium text-red-800">Error Submitting Request</h3>
+        <div class="mt-2 text-sm text-red-700">
+          <p>{error}</p>
+        </div>
+        <div class="mt-4">
+          <button
+            type="button"
+            class="bg-red-50 text-red-800 px-4 py-2 rounded-md text-sm font-medium hover:bg-red-100"
+            on:click={handleReturnToForm}
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+{:else}
+  <form on:submit|preventDefault={handleSubmit} class="space-y-4">
+    <div class="space-y-2">
+      <label for="departureTime" class="block text-sm font-medium text-gray-700">Departure Time</label>
+      <input 
+        id="departureTime"
+        type="datetime-local" 
+        bind:value={formData.departureTime}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        required
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label for="returnTime" class="block text-sm font-medium text-gray-700">Return Time</label>
+      <input 
+        id="returnTime"
+        type="datetime-local" 
+        bind:value={formData.returnTime}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        required
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label for="originAddress" class="block text-sm font-medium text-gray-700">Origin Address</label>
+      <input 
+        id="originAddress"
+        type="text" 
+        bind:value={formData.originAddress}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        required
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label for="destinationAddress" class="block text-sm font-medium text-gray-700">Destination Address</label>
+      <input 
+        id="destinationAddress"
+        type="text" 
+        bind:value={formData.destinationAddress}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        required
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label for="needsCompanion" class="block text-sm font-medium text-gray-700">Needs Companion</label>
+      <input 
+        id="needsCompanion"
+        type="checkbox" 
+        bind:checked={formData.needsCompanion}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        required
+      />
+    </div>
+
+    <div class="space-y-2">
+      <label for="allowsSharing" class="block text-sm font-medium text-gray-700">Allows Sharing</label>
+      <input 
+        id="allowsSharing"
+        type="checkbox" 
+        bind:checked={formData.allowsSharing}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        required
+      />
+    </div>
+
+    <div class="space-y-2">
+      <button type="submit" class="mt-4 w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+        Submit
+      </button>
+    </div>
+  </form>
+{/if} 
