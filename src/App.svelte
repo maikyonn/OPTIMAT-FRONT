@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import TransportationForm from './components/TransportationForm.svelte';
 	import { Map, TileLayer, Marker, Popup, Polygon, GeoJSON } from 'sveaflet';
+  import Chat from './components/Chat.svelte';
 
   
   let loading = false;
@@ -9,6 +10,7 @@
   let responseData = null;
   let originMarker = [51.505, -0.09];
   let destinationMarker = [51.505, -0.09];
+  let showChat = false;
 
   // Calculate the center point between two coordinates
   function calculateCenter(coord1, coord2) {
@@ -209,16 +211,30 @@
   </div>
   <div class="w-1/2 px-8 py-6 overflow-y-auto">
     <div class="bg-white shadow-lg rounded-3xl p-8">
-      <h1 class="text-2xl font-bold text-gray-900 mb-4">OPTIMAT Transportation</h1>
+      <div class="flex justify-between items-center mb-4">
+        <h1 class="text-2xl font-bold text-gray-900">OPTIMAT Transportation</h1>
+        <button
+          class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          on:click={() => showChat = !showChat}
+        >
+          {showChat ? 'Show Form' : 'Show Chat'}
+        </button>
+      </div>
 
-      <TransportationForm 
-        {loading}
-        {error}
-        {responseData}
-        on:submit={handleFormSubmit}
-        on:originUpdate={handleOriginAddressUpdate}
-        on:destinationUpdate={handleDestinationAddressUpdate}
-      />
+      {#if showChat}
+        <div class="h-[600px]">
+          <Chat />
+        </div>
+      {:else}
+        <TransportationForm 
+          {loading}
+          {error}
+          {responseData}
+          on:submit={handleFormSubmit}
+          on:originUpdate={handleOriginAddressUpdate}
+          on:destinationUpdate={handleDestinationAddressUpdate}
+        />
+      {/if}
     </div>
   </div>
 </main>
