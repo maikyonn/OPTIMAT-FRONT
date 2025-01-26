@@ -2,7 +2,12 @@
     import { onMount } from 'svelte';
     import { BACKEND_URL } from '../config';
   
-    let messages = [];
+    let messages = [
+      {
+        role: 'ai',
+        content: 'Hello! I\'m here to help you find paratransit providers. How can I assist you today?'
+      }
+    ];
     
     let userInput = "I'm disabled and trying to go from 1871 N Main St, Walnut Creek, CA 94596 to 1601 Ygnacio Valley Rd, Walnut Creek, CA 94598? CAn you help me find providers?";
     let loading = false;
@@ -136,10 +141,11 @@
       class="border-t p-4 bg-white"
     >
       <div class="flex space-x-4">
-        <textarea
+        <input
+          type="text"
           bind:value={userInput}
           placeholder={serverOnline ? "Type your message..." : "Chat is currently unavailable"}
-          class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500 min-h-[100px] resize-y p-2"   
+          class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"   
           disabled={loading || !serverOnline}
         />
         <button
