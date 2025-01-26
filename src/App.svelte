@@ -172,7 +172,7 @@
   onMount(async () => {
     // Set initial markers from default addresses
     const defaultOrigin = "1103 S California Blvd, Walnut Creek, CA 94596";
-    const defaultDestination = "1275 Broadway Plaza, Walnut Creek, CA 94596";
+    const defaultDestination = "1010 Stanley Dollar Dr, Walnut Creek, CA 94595";
     
     const originCoords = await geocodeAddress(defaultOrigin);
     const destCoords = await geocodeAddress(defaultDestination);
