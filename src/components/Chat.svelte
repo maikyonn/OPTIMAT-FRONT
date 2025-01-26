@@ -1,23 +1,31 @@
 <script>
     import { onMount } from 'svelte';
+    import { BACKEND_URL } from '../config';
   
     let messages = [];
-    let userInput = '';
+    
+    let userInput = "I'm disabled and trying to go from 1871 N Main St, Walnut Creek, CA 94596 to 1601 Ygnacio Valley Rd, Walnut Creek, CA 94598? CAn you help me find providers?";
     let loading = false;
     let error = null;
     let serverOnline = false;
+    let conversationId = null;
+  
+    function generateConversationId() {
+      return 'conv_' + Math.random().toString(36).substring(2, 15);
+    }
   
     async function checkServerHealth() {
       try {
-        const response = await fetch('http://209.20.159.36:8001/health');
+        const response = await fetch(`${BACKEND_URL}/api/v1/chat/health`);
         serverOnline = response.ok;
       } catch (e) {
         serverOnline = false;
       }
     }
   
-    // Check server status on mount and every 30 seconds
+    // Initialize conversation ID on mount
     onMount(() => {
+      conversationId = generateConversationId();
       checkServerHealth();
       const interval = setInterval(checkServerHealth, 30000);
       return () => clearInterval(interval);
@@ -29,39 +37,38 @@
       loading = true;
       error = null;
   
-      // 1) Add the user’s new message to our local conversation
-      messages = [
-        ...messages,
-        {
-          role: 'human',
-          content: userInput
-        }
-      ];
+      const newMessage = {
+        role: 'human',
+        content: userInput
+      };
+  
+      messages = [...messages, newMessage];
   
       try {
-        // 2) Send **all** messages (which now includes the newest user message)
-        const response = await fetch('http://209.20.159.36:8001/chat', {
+        const response = await fetch(`${BACKEND_URL}/api/v1/chat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          // Pass the entire conversation (messages) — content is optional now
           body: JSON.stringify({
-            messages: messages
+            newMessage: newMessage,
+            conversationId: conversationId
           })
         });
   
         if (!response.ok) throw new Error('Failed to send message');
   
-        const data = await response.json();
-  
-        // 3) The server returns ONLY new AI messages, so we append them directly
-        messages = [...messages, ...data.messages];
+        const { messages: responseMessages } = await response.json();
+        
+        // Add all messages from the response
+        if (responseMessages) {
+          messages = [...messages, ...responseMessages];
+        }
       } catch (e) {
         error = e.message;
       } finally {
         loading = false;
-        userInput = ''; // Clear input after sending
+        userInput = '';
       }
     }
   </script>
@@ -84,16 +91,25 @@
   
     <!-- Chat messages -->
     <div class="flex-1 overflow-y-auto p-4 space-y-4">
-      {#each messages as message}
+      {#each messages.filter(m => (m.role === 'ai' || m.role === 'human' || m.role === 'system') && typeof m.content === 'string') as message}
         <div class="flex flex-col {message.role === 'human' ? 'items-end' : 'items-start'}">
           <div class="max-w-[80%] rounded-lg p-3 {
-            message.role === 'human' 
-              ? 'bg-indigo-600 text-white' 
-              : message.role === 'system/other'
-                ? 'bg-gray-200 text-gray-700 font-mono text-sm'
+            message.role === 'human'
+              ? 'bg-indigo-600 text-white'
+              : message.role === 'system'
+                ? 'bg-yellow-100 text-gray-700'
                 : 'bg-gray-100 text-gray-900'
           }">
-            <p class="whitespace-pre-wrap">{message.content}</p>
+            {#if message.role === 'system'}
+              <div class="flex items-center space-x-2">
+                <svg class="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                <p class="whitespace-pre-wrap">Searched Providers</p>
+              </div>
+            {:else}
+              <p class="whitespace-pre-wrap">{message.content}</p>
+            {/if}
           </div>
           <span class="text-xs text-gray-500 mt-1">
             {message.role}

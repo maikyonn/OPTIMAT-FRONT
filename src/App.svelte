@@ -3,6 +3,7 @@
   import TransportationForm from './components/TransportationForm.svelte';
 	import { Map, TileLayer, Marker, Popup, Polygon, GeoJSON } from 'sveaflet';
   import Chat from './components/Chat.svelte';
+  import { BACKEND_URL } from './config';
 
   
   let loading = false;
@@ -21,15 +22,25 @@
 
   // Calculate zoom level to fit both markers
   function calculateZoom(coord1, coord2) {
-    const latDiff = Math.abs(coord1[0] - coord2[0]);
-    const lngDiff = Math.abs(coord1[1] - coord2[1]);
-    const maxDiff = Math.max(latDiff, lngDiff);
-    
-    // Increased zoom levels (smaller numbers = zoomed out, larger numbers = zoomed in)
-    if (maxDiff > 0.1) return 13;     // was 11
-    if (maxDiff > 0.05) return 14;    // was 12
-    if (maxDiff > 0.01) return 15;    // was 13
-    return 16;                        // was 14
+    // Calculate distance between points in meters
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = coord1[0] * Math.PI/180;
+    const φ2 = coord2[0] * Math.PI/180;
+    const Δφ = (coord2[0]-coord1[0]) * Math.PI/180;
+    const Δλ = (coord2[1]-coord1[1]) * Math.PI/180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distance = R * c;
+
+    // Calculate appropriate zoom based on distance
+    if (distance > 10000) return 11;      // > 10km
+    if (distance > 5000) return 12;       // 5-10km  
+    if (distance > 2000) return 13;       // 2-5km
+    if (distance > 1000) return 14;       // 1-2km
+    return 15;                            // < 1km
   }
 
   // Reactive statements to update map center and zoom
@@ -39,13 +50,23 @@
 
   async function geocodeAddress(address) {
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+      const response = await fetch(`${BACKEND_URL}/api/v1/utils/geocode`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ address })
+      });
       const data = await response.json();
       
-      if (data && data[0]) {
-        return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+      if (data.status === 'SUCCESS' && data.data.coordinates) {
+        const [lon, lat] = data.data.coordinates;
+        return [lat, lon];
       }
+
+      console.error('Geocoding failed:', data.message);
       return null;
+
     } catch (err) {
       console.error('Geocoding error:', err);
       return null;
@@ -78,10 +99,8 @@
     error = null;
     responseData = null;
     
-    let local = "http://0.0.0.0:8000/api/v1/providers/match"
-    let online = "https://optimat-db.onrender.com/api/v1/providers/match"
     try {
-      const response = await fetch(online, {
+      const response = await fetch(`${BACKEND_URL}/api/v1/providers/match`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -130,9 +149,11 @@
   function getZoneStyle(index) {
     return {
       color: zoneColors[index % zoneColors.length],
-      weight: 3,
+      weight: 2,
       opacity: 0.8,
-      fillOpacity: 0.4
+      fillOpacity: 0.2,
+      fillColor: zoneColors[index % zoneColors.length],
+      dashArray: index % 2 ? '3' : null
     };
   }
 
@@ -170,14 +191,33 @@
         }}
       >
         <TileLayer url={'https://tile.openstreetmap.org/{z}/{x}/{y}.png'} />
-        
         {#each serviceZones as zone}
+          {console.log('Service zone:', zone.geojson)}
           {#if zone.geojson}
             <GeoJSON
               json={zone.geojson}
               options={{
                 style: () => zone.style,
-                onEachFeature,
+                onEachFeature: (feature, layer) => {
+                  layer.on({
+                    mouseover: (e) => {
+                      const layer = e.target;
+                      layer.setStyle({
+                        weight: 3,
+                        opacity: 1,
+                        fillOpacity: 0.4
+                      });
+                      layer.bringToFront();
+                    },
+                    mouseout: (e) => {
+                      const layer = e.target;
+                      layer.setStyle(zone.style);
+                    }
+                  });
+                  if (feature.properties && feature.properties.name) {
+                    layer.bindPopup(feature.properties.name);
+                  }
+                },
                 pointToLayer(feature, latlng) {
                   return L.circleMarker(latlng, {
                     radius: 8,

@@ -18,11 +18,52 @@
   export let error = null;
   export let responseData = null;
 
+  // Add predefined origin addresses
+  const predefinedOrigins = [
+    {
+      label: "Target (Walnut Creek)",
+      address: "1871 N Main St, Walnut Creek, CA 94596"
+    },
+    {
+      label: "BART (Walnut Creek)",
+      address: "200 Ygnacio Valley Road, Walnut Creek, CA 94596"
+    },
+    {
+      label: "John Muir Medical Center",
+      address: "1601 Ygnacio Valley Rd, Walnut Creek, CA 94598"
+    },
+    {
+      label: "Kaiser Permanente",
+      address: "1425 S Main St, Walnut Creek, CA 94596"
+    }
+  ];
+
+  // Add predefined destinations
+  const predefinedDestinations = [
+    {
+      label: "Broadway Plaza",
+      address: "1275 Broadway Plaza, Walnut Creek, CA 94596"
+    },
+    {
+      label: "Rossmoor Shopping Center",
+      address: "1980 Tice Valley Blvd, Walnut Creek, CA 94595"
+    },
+    {
+      label: "Police Station",
+      address: "1666 N Main St, Walnut Creek, CA 94596"
+    },
+    {
+      label: "Stoneridge Shopping Center",
+      address: "1 Stoneridge Mall Rd, Pleasanton, CA 94588"
+    }
+  ];
+
+  // Update formData to use first predefined origin and destination as default
   let formData = {
     departureTime: formatDateTimeLocal(now),
     returnTime: formatDateTimeLocal(fourHoursLater),
-    originAddress: "1103 S California Blvd, Walnut Creek, CA 94596",
-    destinationAddress: "1275 Broadway Plaza, Walnut Creek, CA 94596",
+    originAddress: predefinedOrigins[0].address,
+    destinationAddress: predefinedDestinations[0].address,
     eligibility: [],
     equipment: [],
     healthConditions: [],
@@ -34,14 +75,14 @@
     dispatch('submit', formData);
   }
 
-  // Watch for changes to addresses using $: reactive statements
-  $: if (formData.originAddress) {
-    dispatch('originUpdate', formData.originAddress);
-  }
+  // // Watch for changes to addresses using $: reactive statements
+  // $: if (formData.originAddress) {
+  //   dispatch('originUpdate', formData.originAddress);
+  // }
 
-  $: if (formData.destinationAddress) {
-    dispatch('destinationUpdate', formData.destinationAddress);
-  }
+  // $: if (formData.destinationAddress) {
+  //   dispatch('destinationUpdate', formData.destinationAddress);
+  // }
 
   // Dispatch initial addresses on mount
   onMount(() => {
@@ -98,6 +139,30 @@
     } catch {
       return null;
     }
+  }
+
+  async function handleOriginBlur() {
+    if (formData.originAddress) {
+      dispatch('originUpdate', formData.originAddress);
+    }
+  }
+
+  async function handleDestinationBlur() {
+    if (formData.destinationAddress) {
+      dispatch('destinationUpdate', formData.destinationAddress);
+    }
+  }
+
+  // Handle origin selection
+  function handleOriginSelect(event) {
+    formData.originAddress = event.target.value;
+    handleOriginBlur();
+  }
+
+  // Handle destination selection
+  function handleDestinationSelect(event) {
+    formData.destinationAddress = event.target.value;
+    handleDestinationBlur();
   }
 </script>
 
@@ -235,24 +300,36 @@
 
     <div class="space-y-2">
       <label for="originAddress" class="block text-sm font-medium text-gray-700">Origin Address</label>
-      <input 
+      <select
         id="originAddress"
-        type="text" 
         bind:value={formData.originAddress}
+        on:change={handleOriginSelect}
         class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
         required
-      />
+      >
+        {#each predefinedOrigins as origin}
+          <option value={origin.address}>
+            {origin.label}
+          </option>
+        {/each}
+      </select>
     </div>
 
     <div class="space-y-2">
       <label for="destinationAddress" class="block text-sm font-medium text-gray-700">Destination Address</label>
-      <input 
+      <select
         id="destinationAddress"
-        type="text" 
         bind:value={formData.destinationAddress}
+        on:change={handleDestinationSelect}
         class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
         required
-      />
+      >
+        {#each predefinedDestinations as destination}
+          <option value={destination.address}>
+            {destination.label}
+          </option>
+        {/each}
+      </select>
     </div>
 
     <div class="space-y-2">
@@ -278,8 +355,20 @@
     </div>
 
     <div class="space-y-2">
-      <button type="submit" class="mt-4 w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-        Submit
+      <button 
+        type="submit" 
+        class="mt-4 w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+        disabled={loading}
+      >
+        {#if loading}
+          <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Searching...
+        {:else}
+          Submit
+        {/if}
       </button>
     </div>
   </form>
