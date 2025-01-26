@@ -73,7 +73,7 @@
     }
   </script>
   
-  <div class="flex flex-col h-full">
+  <div class="flex flex-col h-[600px]">
     {#if !serverOnline}
       <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
         <div class="flex">
@@ -136,11 +136,10 @@
       class="border-t p-4 bg-white"
     >
       <div class="flex space-x-4">
-        <input
-          type="text"
+        <textarea
           bind:value={userInput}
           placeholder={serverOnline ? "Type your message..." : "Chat is currently unavailable"}
-          class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"   
+          class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500 min-h-[100px] resize-y p-2"   
           disabled={loading || !serverOnline}
         />
         <button
