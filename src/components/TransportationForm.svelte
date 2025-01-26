@@ -174,57 +174,63 @@
     <div class="bg-white rounded-lg shadow p-6">
       <h3 class="text-lg font-medium text-gray-900 mb-4">Service Providers</h3>
       <div class="space-y-4">
-        {#each responseData.data as provider, index}
-          <div class="flex items-start space-x-4">
-            <!-- Color indicator -->
-            <div 
-              class="w-6 h-6 rounded flex-shrink-0 mt-1"
-              style="background-color: {$zoneColors[index % $zoneColors.length]}"
-            ></div>
-            
-            <!-- Service details -->
-            <div class="flex-1">
-              <h4 class="font-medium text-gray-900">{provider.provider_name}</h4>
-              <dl class="mt-2 text-sm text-gray-600 space-y-1">
-                <div class="flex">
-                  <dt class="font-medium w-24">Type:</dt>
-                  <dd>{getProviderTypeLabel(provider.provider_type)}</dd>
-                </div>
-                <div class="flex">
-                  <dt class="font-medium w-24">Service:</dt>
-                  <dd>{provider.routing_type.replace(/-/g, ' ')}</dd>
-                </div>
-                <div class="flex">
-                  <dt class="font-medium w-24">Hours:</dt>
-                  <dd>{formatServiceHours(provider.service_hours)}</dd>
-                </div>
-                <div class="flex">
-                  <dt class="font-medium w-24">Booking:</dt>
-                  <dd>
-                    {#if parseBookingInfo(provider.booking)}
-                      <a href="tel:{parseBookingInfo(provider.booking)}" class="text-blue-600 hover:underline">
-                        {parseBookingInfo(provider.booking)}
-                      </a>
-                    {:else}
-                      Contact provider
-                    {/if}
-                  </dd>
-                </div>
-                {#if provider.website}
+        {#if responseData.data.length === 0}
+          <div class="text-gray-500 text-center py-4">
+            No transportation providers found for your route and criteria.
+          </div>
+        {:else}
+          {#each responseData.data as provider, index}
+            <div class="flex items-start space-x-4">
+              <!-- Color indicator -->
+              <div 
+                class="w-6 h-6 rounded flex-shrink-0 mt-1"
+                style="background-color: {$zoneColors[index % $zoneColors.length]}"
+              ></div>
+              
+              <!-- Service details -->
+              <div class="flex-1">
+                <h4 class="font-medium text-gray-900">{provider.provider_name}</h4>
+                <dl class="mt-2 text-sm text-gray-600 space-y-1">
                   <div class="flex">
-                    <dt class="font-medium w-24">Website:</dt>
+                    <dt class="font-medium w-24">Type:</dt>
+                    <dd>{getProviderTypeLabel(provider.provider_type)}</dd>
+                  </div>
+                  <div class="flex">
+                    <dt class="font-medium w-24">Service:</dt>
+                    <dd>{provider.routing_type.replace(/-/g, ' ')}</dd>
+                  </div>
+                  <div class="flex">
+                    <dt class="font-medium w-24">Hours:</dt>
+                    <dd>{formatServiceHours(provider.service_hours)}</dd>
+                  </div>
+                  <div class="flex">
+                    <dt class="font-medium w-24">Booking:</dt>
                     <dd>
-                      <a href={provider.website} target="_blank" rel="noopener noreferrer" 
-                         class="text-blue-600 hover:underline">
-                        Visit website
-                      </a>
+                      {#if parseBookingInfo(provider.booking)}
+                        <a href="tel:{parseBookingInfo(provider.booking)}" class="text-blue-600 hover:underline">
+                          {parseBookingInfo(provider.booking)}
+                        </a>
+                      {:else}
+                        Contact provider
+                      {/if}
                     </dd>
                   </div>
-                {/if}
-              </dl>
+                  {#if provider.website}
+                    <div class="flex">
+                      <dt class="font-medium w-24">Website:</dt>
+                      <dd>
+                        <a href={provider.website} target="_blank" rel="noopener noreferrer" 
+                           class="text-blue-600 hover:underline">
+                          Visit website
+                        </a>
+                      </dd>
+                    </div>
+                  {/if}
+                </dl>
+              </div>
             </div>
-          </div>
-        {/each}
+          {/each}
+        {/if}
       </div>
     </div>
 
@@ -259,7 +265,14 @@
       <div class="ml-3">
         <h3 class="text-sm font-medium text-red-800">Error Submitting Request</h3>
         <div class="mt-2 text-sm text-red-700">
-          <p>{error}</p>
+          <p>Error: {error.error || error}</p>
+          {#if error.details}
+            <ul class="list-disc list-inside mt-2">
+              {#each Object.entries(error.details) as [field, message]}
+                <li>{message}</li>
+              {/each}
+            </ul>
+          {/if}
         </div>
         <div class="mt-4">
           <button
