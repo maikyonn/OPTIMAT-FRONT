@@ -29,8 +29,8 @@
       address: "200 Ygnacio Valley Road, Walnut Creek, CA 94596"
     },
     {
-      label: "John Muir Medical Center",
-      address: "1601 Ygnacio Valley Rd, Walnut Creek, CA 94598"
+      label: "Rossmoor Golf Clubs",
+      address: "1010 Stanley Dollar Dr, Walnut Creek, CA 94595"
     },
     {
       label: "Kaiser Permanente",
@@ -43,6 +43,10 @@
     {
       label: "Broadway Plaza",
       address: "1275 Broadway Plaza, Walnut Creek, CA 94596"
+    },
+    {
+      label: "UC Berkeley",
+      address: "Barrow Ln, Berkeley, CA 94704"
     },
     {
       label: "Rossmoor Shopping Center",
