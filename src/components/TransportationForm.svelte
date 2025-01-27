@@ -21,8 +21,8 @@
   // Add predefined origin addresses
   const predefinedOrigins = [
     {
-      label: "Target (Walnut Creek)",
-      address: "1871 N Main St, Walnut Creek, CA 94596"
+      label: "Safeway (Walnut Creek)",
+      address: "600 S Broadway, Walnut Creek, CA"
     },
     {
       label: "BART (Walnut Creek)",
