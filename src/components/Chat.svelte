@@ -21,7 +21,7 @@
   
     async function checkServerHealth() {
       try {
-        const response = await fetch(`${BACKEND_URL}/api/v1/chat/health`);
+        const response = await fetch(`${BACKEND_URL}/api/chat/health`);
         serverOnline = response.ok;
       } catch (e) {
         serverOnline = false;
@@ -50,7 +50,7 @@
       messages = [...messages, newMessage];
   
       try {
-        const response = await fetch(`${BACKEND_URL}/api/v1/chat`, {
+        const response = await fetch(`${BACKEND_URL}/api/chat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

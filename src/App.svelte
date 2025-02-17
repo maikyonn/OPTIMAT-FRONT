@@ -50,7 +50,7 @@
 
   async function geocodeAddress(address) {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/v1/utils/geocode`, {
+      const response = await fetch(`${BACKEND_URL}/api/utils/geocode`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -100,7 +100,7 @@
     responseData = null;
     
     try {
-      const response = await fetch(`${BACKEND_URL}/api/v1/providers/match`, {
+      const response = await fetch(`${BACKEND_URL}/api/providers/match`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
