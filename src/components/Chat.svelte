@@ -5,39 +5,78 @@
     let messages = [
       {
         role: 'ai',
-        content: 'Hello! I\'m here to help you find paratransit providers. How can I assist you today?'
+        content: "Hello! I'm here to help you find paratransit providers. How can I assist you today?"
       }
     ];
     
-    let userInput = "I'm disabled and trying to go from 1871 N Main St, Walnut Creek, CA 94596 to 1601 Ygnacio Valley Rd, Walnut Creek, CA 94598? CAn you help me find providers?";
-    let loading = false;
+    let userInput = "I'm at Hanover Walnut Creek apartments, and trying to go to the Target in Walnut Creek? Can you help me find providers?";
+    let loading = false; // For message sending
+    let initializing = true; // For initial conversation setup
     let error = null;
     let serverOnline = false;
     let conversationId = null;
-  
-    function generateConversationId() {
-      return 'conv_' + Math.random().toString(36).substring(2, 15);
-    }
-  
+
     async function checkServerHealth() {
       try {
-        const response = await fetch(`${BACKEND_URL}/api/chat/health`);
+        const response = await fetch(`${BACKEND_URL}/api-chat/health`);
         serverOnline = response.ok;
+        if (!serverOnline) {
+          error = "Chat server is currently offline.";
+        }
       } catch (e) {
         serverOnline = false;
+        error = "Failed to connect to the chat server.";
+      }
+    }
+
+    async function initializeNewConversation() {
+      initializing = true;
+      error = null;
+      try {
+        const response = await fetch(`${BACKEND_URL}/api-chat/conversations`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ title: "New Chat via Frontend" }) // Backend expects a title
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: "Failed to initialize conversation." }));
+          throw new Error(errorData.detail || `Server error: ${response.status}`);
+        }
+
+        const newConversation = await response.json();
+        if (newConversation && newConversation.id) {
+          conversationId = newConversation.id;
+          console.log("Conversation initialized with ID:", conversationId);
+        } else {
+          throw new Error("Failed to retrieve conversation ID from server.");
+        }
+      } catch (e) {
+        error = `Error initializing conversation: ${e.message}`;
+        console.error(error);
+      } finally {
+        initializing = false;
       }
     }
   
-    // Initialize conversation ID on mount
-    onMount(() => {
-      conversationId = generateConversationId();
-      checkServerHealth();
+    onMount(async () => {
+      await checkServerHealth();
+      if (serverOnline) {
+        await initializeNewConversation();
+      }
       const interval = setInterval(checkServerHealth, 30000);
       return () => clearInterval(interval);
     });
   
     async function handleSubmit() {
-      if (!userInput.trim() || !serverOnline) return;
+      if (!userInput.trim() || !serverOnline || initializing || !conversationId) {
+        if (!conversationId && !initializing) {
+            error = "Conversation not initialized. Please wait or refresh.";
+        }
+        return;
+      }
   
       loading = true;
       error = null;
@@ -48,36 +87,44 @@
       };
   
       messages = [...messages, newMessage];
+      userInput = ''; // Clear input immediately
   
       try {
-        const response = await fetch(`${BACKEND_URL}/api/chat`, {
+        const response = await fetch(`${BACKEND_URL}/api-chat/`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            newMessage: newMessage,
-            conversationId: conversationId
+            new_message: newMessage,
+            conversation_id: conversationId 
           })
         });
   
-        if (!response.ok) throw new Error('Failed to send message');
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: "Failed to send message." }));
+            throw new Error(errorData.detail || `Server error: ${response.status}`);
+        }
   
         const { messages: responseMessages } = await response.json();
         
-        // Add all messages from the response
         if (responseMessages) {
-          messages = [...messages, ...responseMessages];
+          const validMessages = responseMessages.filter(m => 
+            (m.role === 'ai' || m.role === 'human' || m.role === 'system') && 
+            typeof m.content === 'string' && 
+            m.content.trim() !== ''
+          );
+          messages = [...messages, ...validMessages];
         }
       } catch (e) {
         error = e.message;
+        // Optionally, add the user's message back to input if sending failed
+        // userInput = newMessage.content; 
       } finally {
         loading = false;
-        userInput = '';
       }
     }
-  </script>
-  
+</script> 
   <div class="flex flex-col h-[600px]">
     {#if !serverOnline}
       <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
@@ -96,7 +143,7 @@
   
     <!-- Chat messages -->
     <div class="flex-1 overflow-y-auto p-4 space-y-4">
-      {#each messages.filter(m => (m.role === 'ai' || m.role === 'human' || m.role === 'system') && typeof m.content === 'string') as message}
+      {#each messages.filter(m => (m.role === 'ai' || m.role === 'human' || m.role === 'system') && typeof m.content === 'string' && m.content.trim() !== '') as message, index}
         <div class="flex flex-col {message.role === 'human' ? 'items-end' : 'items-start'}">
           <div class="max-w-[80%] rounded-lg p-3 {
             message.role === 'human'
@@ -110,7 +157,12 @@
                 <svg class="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                 </svg>
-                <p class="whitespace-pre-wrap">Searched Providers</p>
+                <p class="whitespace-pre-wrap">
+                  Searched Providers
+                  {#if messages.filter(m => m.role === 'system').length > 0}
+                    x{messages.filter((m, i) => i <= index && m.role === 'system').length}
+                  {/if}
+                </p>
               </div>
             {:else}
               <p class="whitespace-pre-wrap">{message.content}</p>
@@ -134,7 +186,6 @@
         </div>
       {/if}
     </div>
-  
     <!-- Input form -->
     <form 
       on:submit|preventDefault={handleSubmit}
