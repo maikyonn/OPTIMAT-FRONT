@@ -171,23 +171,21 @@
 </script>
 
 {#if responseData}
-  <div class="space-y-6 p-6">
-    <h2 class="text-xl font-semibold text-gray-900">Available Transportation Services</h2>
-    
-    <!-- Legend/Key Box -->
-    <div class="bg-white rounded-lg shadow p-6">
-      <h3 class="text-lg font-medium text-gray-900 mb-4">Service Providers</h3>
-      <div class="space-y-4">
-        {#if responseData.data.length === 0}
-          <div class="text-gray-500 text-center py-4">
-            No transportation providers found for your route and criteria.
-          </div>
-        {:else}
-          {#each responseData.data as provider, index}
-            <div class="flex items-start space-x-4">
+  <div class="space-y-4">
+    {#if responseData.data.length === 0}
+      <div class="text-gray-500 text-center py-8 bg-gray-50 rounded-lg">
+        <div class="text-4xl mb-2">🚌</div>
+        <p>No transportation providers found for your route and criteria.</p>
+        <p class="text-sm mt-1">Try adjusting your search parameters.</p>
+      </div>
+    {:else}
+      <div class="space-y-3">
+        {#each responseData.data as provider, index}
+          <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+            <div class="flex items-start space-x-3">
               <!-- Color indicator -->
               <div 
-                class="w-6 h-6 rounded flex-shrink-0 mt-1"
+                class="w-4 h-4 rounded-full flex-shrink-0 mt-1"
                 style="background-color: {$zoneColors[index % $zoneColors.length]}"
               ></div>
               
@@ -233,10 +231,10 @@
                 </dl>
               </div>
             </div>
-          {/each}
-        {/if}
+          </div>
+        {/each}
       </div>
-    </div>
+    {/if}
 
     <!-- Trip Details Summary -->
     <div class="bg-gray-50 rounded-lg p-4 text-sm">

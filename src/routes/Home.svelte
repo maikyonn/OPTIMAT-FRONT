@@ -1,313 +1,163 @@
 <script>
-  import { onMount } from 'svelte';
   import { push } from 'svelte-spa-router';
-  import TransportationForm from '../components/TransportationForm.svelte';
-  import { Map, TileLayer, Marker, Popup, Polygon, GeoJSON } from 'sveaflet';
-  import Chat from '../components/Chat.svelte';
-  import { BACKEND_URL } from '../config';
+  import { fade, fly } from 'svelte/transition';
+  import { onMount } from 'svelte';
 
-  let loading = false;
-  let error = null;
-  let responseData = null;
-  let originMarker = [51.505, -0.09];
-  let destinationMarker = [51.505, -0.09];
-  let showChat = false;
-
-  // Calculate the center point between two coordinates
-  function calculateCenter(coord1, coord2) {
-    const lat = (coord1[0] + coord2[0]) / 2;
-    const lng = (coord1[1] + coord2[1]) / 2;
-    return [lat, lng];
-  }
-
-  // Calculate zoom level to fit both markers
-  function calculateZoom(coord1, coord2) {
-    // Calculate distance between points in meters
-    const R = 6371e3; // Earth's radius in meters
-    const φ1 = coord1[0] * Math.PI/180;
-    const φ2 = coord2[0] * Math.PI/180;
-    const Δφ = (coord2[0]-coord1[0]) * Math.PI/180;
-    const Δλ = (coord2[1]-coord1[1]) * Math.PI/180;
-
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distance = R * c;
-
-    // Calculate appropriate zoom based on distance
-    if (distance > 10000) return 11;      // > 10km
-    if (distance > 5000) return 12;       // 5-10km  
-    if (distance > 2000) return 13;       // 2-5km
-    if (distance > 1000) return 14;       // 1-2km
-    return 15;                            // < 1km
-  }
-
-  // Reactive statements to update map center and zoom
-  $: mapCenter = calculateCenter(originMarker, destinationMarker);
-  $: mapZoom = calculateZoom(originMarker, destinationMarker);
-  $: mapKey = [...originMarker, ...destinationMarker].join(',');
-
-  async function geocodeAddress(address) {
-    try {
-      const apiPath = window.location.hostname === 'localhost' ? '/providers/geocode' : '/api-providers/providers/geocode';
-      const url = `${BACKEND_URL}${apiPath}?address=${encodeURIComponent(address)}`;
-      console.log('Geocoding URL:', url);
-      
-      const response = await fetch(url);
-      const data = await response.json();
-      
-      if (data.success && data.coordinates) {
-        const { longitude, latitude } = data.coordinates;
-        return [latitude, longitude];
-      }
-
-      console.error('Geocoding failed:', data.message);
-      return null;
-
-    } catch (err) {
-      console.error('Geocoding error:', err);
-      return null;
-    }
-  }
-
-  async function handleOriginAddressUpdate(event) {
-    const address = event.detail;
-    console.log("Origin address updated:", address);
-    const coordinates = await geocodeAddress(address);
-    if (coordinates) {
-      originMarker = coordinates;
-      console.log("New origin coordinates:", coordinates);
-    }
-  }
-
-  async function handleDestinationAddressUpdate(event) {
-    const address = event.detail;
-    console.log("Destination address updated:", address);
-    const coordinates = await geocodeAddress(address);
-    if (coordinates) {
-      destinationMarker = coordinates;
-      console.log("New destination coordinates:", coordinates);
-    }
-  }
-
-  async function handleFormSubmit(event) {
-    const formData = event.detail;
-    loading = true;
-    error = null;
-    responseData = null;
-    
-    try {
-      console.log('Submitting form data:', formData);
-      
-      const apiPath = window.location.hostname === 'localhost' ? '/providers/filter' : '/api-providers/providers/filter';
-      console.log('API URL:', `${BACKEND_URL}${apiPath}`);
-      const response = await fetch(`${BACKEND_URL}${apiPath}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          source_address: formData.originAddress,
-          destination_address: formData.destinationAddress,
-          is_operating: true
-        })
-      });
-      
-      console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response text:', errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
-      }
-      
-      const responseText = await response.text();
-      console.log('Response text:', responseText);
-      
-      if (!responseText.trim()) {
-        throw new Error('Empty response from server');
-      }
-      
-      const data = JSON.parse(responseText);
-      responseData = { data };
-    } catch (err) {
-      error = err.message;
-      console.error('Error:', err);
-    } finally {
-      loading = false;
-    }
-  }
-
-  // Array of distinct colors for service zones
-  const zoneColors = [
-    '#FF6B6B', // Coral Red
-    '#4ECDC4', // Turquoise
-    '#45B7D1', // Sky Blue
-    '#96CEB4', // Sage Green
-    '#FFEEAD', // Cream Yellow
-    '#D4A5A5', // Dusty Rose
-    '#9B59B6', // Purple
-    '#3498DB', // Blue
-    '#E67E22', // Orange
-    '#2ECC71'  // Emerald Green
-  ];
-
-  function parseServiceZone(zoneString) {
-    try {
-      return JSON.parse(zoneString);
-    } catch (e) {
-      console.error('Error parsing service zone:', e);
-      return null;
-    }
-  }
-
-  // Get style for zone based on index
-  function getZoneStyle(index) {
-    return {
-      color: zoneColors[index % zoneColors.length],
-      weight: 2,
-      opacity: 0.8,
-      fillOpacity: 0.2,
-      fillColor: zoneColors[index % zoneColors.length],
-      dashArray: index % 2 ? '3' : null
-    };
-  }
-
-  function onEachFeature(feature, layer) {
-    if (feature.properties && feature.properties.name) {
-      layer.bindPopup(feature.properties.name);
-    }
-  }
-
-  $: serviceZones = responseData?.data?.map((provider, index) => ({
-    geojson: parseServiceZone(provider.service_zone),
-    name: provider.provider_name,
-    style: getZoneStyle(index)
-  })) || [];
-
-  function navigateToBetaSignup() {
-    push('/beta-signup');
-  }
-
-  onMount(async () => {
-    // Set initial markers from default addresses
-    const defaultOrigin = "1103 S California Blvd, Walnut Creek, CA 94596";
-    const defaultDestination = "1010 Stanley Dollar Dr, Walnut Creek, CA 94595";
-    
-    const originCoords = await geocodeAddress(defaultOrigin);
-    const destCoords = await geocodeAddress(defaultDestination);
-    
-    if (originCoords) originMarker = originCoords;
-    if (destCoords) destinationMarker = destCoords;
+  let mounted = false;
+  
+  onMount(() => {
+    mounted = true;
   });
+
+  function navigateToMap() {
+    push('/map');
+  }
+
+  function navigateToChat() {
+    push('/chat');
+  }
+
+  const apiLinks = [
+    {
+      title: 'Provider Map',
+      description: 'Interactive map of service providers',
+      url: 'https://optimat.us/api-providers/providers/map',
+      icon: '🗺️'
+    },
+    {
+      title: 'Provider API Docs',
+      description: 'Provider matching API documentation',
+      url: 'https://optimat.us/api-providers/docs',
+      icon: '📚'
+    },
+    {
+      title: 'Chat Interface',
+      description: 'AI-powered transportation assistant',
+      url: 'https://optimat.us/api-chat/',
+      icon: '💬'
+    },
+    {
+      title: 'Chat API Docs',
+      description: 'Chat API documentation',
+      url: 'https://optimat.us/api-chat/docs',
+      icon: '📖'
+    },
+    {
+      title: 'Admin Logs',
+      description: 'Chat conversation logs',
+      url: 'https://optimat.us/api-chat/admin/logs',
+      icon: '📊'
+    }
+  ];
 </script>
 
-<main class="min-h-screen bg-gray-100 flex relative">
-  <!-- Beta signup link -->
-  <div class="absolute top-4 right-4 z-10">
-    <button
-      class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-md"
-      on:click={navigateToBetaSignup}
-    >
-      Join SMS Beta
-    </button>
-  </div>
-
-  <div class="w-1/2 h-screen relative">
-    {#key mapKey}
-      <Map
-        options={{
-          center: mapCenter,
-          zoom: mapZoom
-        }}
-      >
-        <TileLayer url={'https://tile.openstreetmap.org/{z}/{x}/{y}.png'} />
-        {#each serviceZones as zone}
-          {console.log('Service zone:', zone.geojson)}
-          {#if zone.geojson}
-            <GeoJSON
-              json={zone.geojson}
-              options={{
-                style: () => zone.style,
-                onEachFeature: (feature, layer) => {
-                  layer.on({
-                    mouseover: (e) => {
-                      const layer = e.target;
-                      layer.setStyle({
-                        weight: 3,
-                        opacity: 1,
-                        fillOpacity: 0.4
-                      });
-                      layer.bringToFront();
-                    },
-                    mouseout: (e) => {
-                      const layer = e.target;
-                      layer.setStyle(zone.style);
-                    }
-                  });
-                  if (feature.properties && feature.properties.name) {
-                    layer.bindPopup(feature.properties.name);
-                  }
-                },
-                pointToLayer(feature, latlng) {
-                  return {
-                    radius: 8,
-                    fillColor: zone.style.color,
-                    color: '#000',
-                    weight: 1,
-                    opacity: 1,
-                    fillOpacity: 0.8
-                  };
-                }
-              }}
-            />
-          {/if}
-        {/each}
-
-        <Marker latLng={originMarker} popup="Origin" />
-        <Marker latLng={destinationMarker} popup="Destination" />
-      </Map>
-    {/key}
-    
-    <button
-      class="absolute bottom-4 left-4 bg-white px-4 py-2 rounded-md shadow-md hover:bg-gray-100"
-      on:click={() => {
-        console.log('Origin coordinates:', originMarker);
-        console.log('Destination coordinates:', destinationMarker);
-        console.log('Center point:', mapCenter);
-      }}
-    >
-      Debug Coordinates
-    </button>
-  </div>
-  <div class="w-1/2 px-8 py-6 overflow-y-auto">
-    <div class="bg-white shadow-lg rounded-3xl p-8">
-      <div class="flex justify-between items-center mb-4">
-        <h1 class="text-2xl font-bold text-gray-900">OPTIMAT Transportation</h1>
-        <button
-          class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          on:click={() => showChat = !showChat}
-        >
-          {showChat ? 'Show Form' : 'Show Chat'}
-        </button>
+<main class="min-h-screen relative flex items-center justify-center">
+  <!-- Background Image -->
+  <div 
+    class="absolute inset-0 bg-cover bg-center bg-no-repeat"
+    style="background-image: url('https://its.berkeley.edu/sites/default/files/styles/openberkeley_image_full/public/general/15548045457_dcb7955f22_o.jpg')"
+  ></div>
+  
+  <!-- Gradient Overlay -->
+  <div class="absolute inset-0 bg-gradient-to-br from-blue-50/80 to-indigo-100/80"></div>
+  
+  <!-- Content -->
+  <div class="relative z-10 w-full">
+  <div class="max-w-6xl mx-auto px-6 py-12">
+    {#if mounted}
+      <!-- Hero Section -->
+      <div class="text-center mb-16" in:fade={{ duration: 800, delay: 200 }}>
+        <h1 class="text-6xl font-bold text-gray-900 mb-6" in:fly={{ y: -50, duration: 1000, delay: 400 }}>
+          Welcome to <span class="text-indigo-600">OPTIMAT</span>
+        </h1>
+        <p class="text-xl text-gray-600 mb-8 max-w-3xl mx-auto" in:fly={{ y: 30, duration: 800, delay: 600 }}>
+          Your comprehensive service for finding paratransit providers. Connect with transportation options 
+          that meet your accessibility needs through our intelligent matching system.
+        </p>
       </div>
 
-      {#if showChat}
-        <div class="h-[600px]">
-          <Chat />
+      <!-- Main Action Cards -->
+      <div class="grid md:grid-cols-2 gap-8 mb-16" in:fly={{ y: 50, duration: 800, delay: 800 }}>
+        <!-- Map Option -->
+        <div class="group cursor-pointer" role="button" tabindex="0" on:click={navigateToMap} on:keypress={navigateToMap}>
+          <div class="bg-white rounded-2xl shadow-xl p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-2xl border border-gray-100">
+            <div class="text-center">
+              <div class="text-6xl mb-6 transform transition-transform duration-300 group-hover:scale-110">🗺️</div>
+              <h3 class="text-2xl font-bold text-gray-900 mb-4">Find with Map</h3>
+              <p class="text-gray-600 mb-6">
+                Use our interactive map to visually explore transportation providers in your area. 
+                Search by addresses and see service zones in real-time.
+              </p>
+              <div class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold transform transition-all duration-300 group-hover:bg-indigo-700 inline-block">
+                Open Map Interface
+              </div>
+            </div>
+          </div>
         </div>
-      {:else}
-        <TransportationForm 
-          {loading}
-          {error}
-          {responseData}
-          on:submit={handleFormSubmit}
-          on:originUpdate={handleOriginAddressUpdate}
-          on:destinationUpdate={handleDestinationAddressUpdate}
-        />
-      {/if}
+
+        <!-- Chat Option -->
+        <div class="group cursor-pointer" role="button" tabindex="0" on:click={navigateToChat} on:keypress={navigateToChat}>
+          <div class="bg-white rounded-2xl shadow-xl p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-2xl border border-gray-100">
+            <div class="text-center">
+              <div class="text-6xl mb-6 transform transition-transform duration-300 group-hover:scale-110">💬</div>
+              <h3 class="text-2xl font-bold text-gray-900 mb-4">Chat Assistant</h3>
+              <p class="text-gray-600 mb-6">
+                Get personalized recommendations through our AI-powered chat assistant. 
+                Describe your needs and receive tailored transportation solutions.
+              </p>
+              <div class="bg-green-600 text-white px-6 py-3 rounded-lg font-semibold transform transition-all duration-300 group-hover:bg-green-700 inline-block">
+                Start Conversation
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Documentation Links -->
+      <div class="bg-white rounded-2xl shadow-xl p-8 border border-gray-100" in:fly={{ y: 50, duration: 800, delay: 1000 }}>
+        <h2 class="text-3xl font-bold text-gray-900 mb-6 text-center">API Documentation & Tools</h2>
+        <div class="grid md:grid-cols-3 lg:grid-cols-5 gap-4">
+          {#each apiLinks as link, index}
+            <a 
+              href={link.url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              class="group block p-4 rounded-lg border border-gray-200 hover:border-indigo-300 hover:shadow-md transition-all duration-300"
+              in:fly={{ y: 30, duration: 600, delay: 1200 + (index * 100) }}
+            >
+              <div class="text-center">
+                <div class="text-2xl mb-2 transform transition-transform duration-300 group-hover:scale-110">{link.icon}</div>
+                <h3 class="font-semibold text-gray-900 text-sm mb-1">{link.title}</h3>
+                <p class="text-xs text-gray-600">{link.description}</p>
+              </div>
+            </a>
+          {/each}
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="text-center mt-12" in:fade={{ duration: 600, delay: 1400 }}>
+        <p class="text-gray-500">
+          Built for accessible transportation • Open source • Community driven
+        </p>
+      </div>
+    {/if}
     </div>
   </div>
-</main> 
+</main>
+
+<style>
+  :global(body) {
+    overflow-x: hidden;
+  }
+  
+  .group:focus {
+    outline: none;
+  }
+  
+  .group:focus > div {
+    ring: 2px;
+    ring-color: #4f46e5;
+    ring-offset: 2px;
+  }
+</style>

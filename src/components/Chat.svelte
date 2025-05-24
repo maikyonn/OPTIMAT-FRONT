@@ -61,11 +61,12 @@
       }
     }
   
-    onMount(async () => {
-      await checkServerHealth();
-      if (serverOnline) {
-        await initializeNewConversation();
-      }
+    onMount(() => {
+      checkServerHealth().then(() => {
+        if (serverOnline) {
+          initializeNewConversation();
+        }
+      });
       const interval = setInterval(checkServerHealth, 30000);
       return () => clearInterval(interval);
     });
@@ -125,7 +126,7 @@
       }
     }
 </script> 
-  <div class="flex flex-col h-[600px]">
+  <div class="flex flex-col h-full">
     {#if !serverOnline}
       <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
         <div class="flex">
@@ -142,7 +143,7 @@
     {/if}
   
     <!-- Chat messages -->
-    <div class="flex-1 overflow-y-auto p-4 space-y-4">
+    <div class="flex-1 overflow-y-auto px-4 pt-4 pb-0 space-y-4">
       {#each messages.filter(m => (m.role === 'ai' || m.role === 'human' || m.role === 'system') && typeof m.content === 'string' && m.content.trim() !== '') as message, index}
         <div class="flex flex-col {message.role === 'human' ? 'items-end' : 'items-start'}">
           <div class="max-w-[80%] rounded-lg p-3 {
@@ -189,23 +190,37 @@
     <!-- Input form -->
     <form 
       on:submit|preventDefault={handleSubmit}
-      class="border-t p-4 bg-white"
+      class="border-t p-4 bg-white flex-shrink-0"
     >
-      <div class="flex space-x-4">
-        <input
-          type="text"
+      <div class="space-y-3">
+        <textarea
           bind:value={userInput}
-          placeholder={serverOnline ? "Type your message..." : "Chat is currently unavailable"}
-          class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"   
+          placeholder={serverOnline ? "Type your message here... (Press Ctrl+Enter to send)" : "Chat is currently unavailable"}
+          class="w-full h-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500 resize-none"   
           disabled={loading || !serverOnline}
-        />
-        <button
-          type="submit"
-          disabled={loading || !serverOnline}
-          class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-        >
-          Send
-        </button>
+          on:keydown={(e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
+        ></textarea>
+        <div class="flex justify-end">
+          <button
+            type="submit"
+            disabled={loading || !serverOnline || !userInput.trim()}
+            class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+          >
+            {#if loading}
+              <div class="flex items-center space-x-2">
+                <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                <span>Sending...</span>
+              </div>
+            {:else}
+              Send Message
+            {/if}
+          </button>
+        </div>
       </div>
     </form>
   </div>
