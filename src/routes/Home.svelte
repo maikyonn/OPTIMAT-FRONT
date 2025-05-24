@@ -50,18 +50,16 @@
 
   async function geocodeAddress(address) {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/utils/geocode`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ address })
-      });
+      const apiPath = window.location.hostname === 'localhost' ? '/providers/geocode' : '/api-providers/providers/geocode';
+      const url = `${BACKEND_URL}${apiPath}?address=${encodeURIComponent(address)}`;
+      console.log('Geocoding URL:', url);
+      
+      const response = await fetch(url);
       const data = await response.json();
       
-      if (data.status === 'SUCCESS' && data.data.coordinates) {
-        const [lon, lat] = data.data.coordinates;
-        return [lat, lon];
+      if (data.success && data.coordinates) {
+        const { longitude, latitude } = data.coordinates;
+        return [latitude, longitude];
       }
 
       console.error('Geocoding failed:', data.message);
@@ -100,20 +98,40 @@
     responseData = null;
     
     try {
-      const response = await fetch(`${BACKEND_URL}/api/providers/match`, {
+      console.log('Submitting form data:', formData);
+      
+      const apiPath = window.location.hostname === 'localhost' ? '/providers/filter' : '/api-providers/providers/filter';
+      console.log('API URL:', `${BACKEND_URL}${apiPath}`);
+      const response = await fetch(`${BACKEND_URL}${apiPath}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          source_address: formData.originAddress,
+          destination_address: formData.destinationAddress,
+          is_operating: true
+        })
       });
       
-      const data = await response.json();
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+      
       if (!response.ok) {
-        throw new Error(data.error || 'Something went wrong');
+        const errorText = await response.text();
+        console.error('Error response text:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       
-      responseData = data;
+      const responseText = await response.text();
+      console.log('Response text:', responseText);
+      
+      if (!responseText.trim()) {
+        throw new Error('Empty response from server');
+      }
+      
+      const data = JSON.parse(responseText);
+      responseData = { data };
     } catch (err) {
       error = err.message;
       console.error('Error:', err);
