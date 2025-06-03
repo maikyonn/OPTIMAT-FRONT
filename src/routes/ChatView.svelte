@@ -29,6 +29,7 @@
   let mapKey = 'initial'; // Force map to re-render when this changes
   let serviceZones = [];
   let loadingZones = false;
+  let visibleZones = new Set(); // Track which provider zones are visible
   
   onMount(async () => {
     mounted = true;
@@ -138,8 +139,9 @@
     showProviderResults = true;
     console.log('Providers found, showing results window');
     
-    // Fetch service zones for the providers
-    await fetchServiceZones(providerData.data);
+    // Reset visible zones when new providers are found
+    visibleZones = new Set();
+    serviceZones = [];
     
     // If we have trip details but haven't set markers properly, use the trip addresses
     if (providerData.source_address && providerData.destination_address) {
@@ -207,47 +209,44 @@
   }
   
 
-  async function fetchServiceZones(providers) {
-    if (!providers || providers.length === 0) return;
-    
-    loadingZones = true;
-    serviceZones = [];
-    
-    try {
-      const apiPath = window.location.hostname === 'localhost' ? '/providers' : '/api-providers/providers';
+  async function toggleServiceZone(providerId, providerName, index) {
+    if (visibleZones.has(providerId)) {
+      // Hide the zone
+      visibleZones.delete(providerId);
+      serviceZones = serviceZones.filter(zone => zone.providerId !== providerId);
+      visibleZones = new Set(visibleZones); // Trigger reactivity
+    } else {
+      // Show the zone
+      loadingZones = true;
       
-      // Fetch service zone data for each provider
-      const zonePromises = providers.map(async (provider, index) => {
-        try {
-          const response = await fetch(`${BACKEND_URL}${apiPath}/${provider.provider_id}/service-zone`);
+      try {
+        const apiPath = window.location.hostname === 'localhost' ? '/providers' : '/api-providers/providers';
+        const response = await fetch(`${BACKEND_URL}${apiPath}/${providerId}/service-zone`);
+        
+        if (response.ok) {
+          const zoneData = await response.json();
           
-          if (response.ok) {
-            const zoneData = await response.json();
+          if (zoneData.has_service_zone && zoneData.raw_data) {
+            const newZone = {
+              providerId: providerId,
+              providerName: providerName,
+              geojson: zoneData.raw_data,
+              style: getZoneStyle(index),
+              index
+            };
             
-            if (zoneData.has_service_zone && zoneData.raw_data) {
-              return {
-                providerId: provider.provider_id,
-                providerName: provider.provider_name,
-                geojson: zoneData.raw_data,
-                style: getZoneStyle(index),
-                index
-              };
-            }
+            serviceZones = [...serviceZones, newZone];
+            visibleZones.add(providerId);
+            visibleZones = new Set(visibleZones); // Trigger reactivity
+            
+            console.log(`Loaded service zone for ${providerName}`);
           }
-        } catch (error) {
-          console.error(`Error fetching service zone for ${provider.provider_name}:`, error);
         }
-        return null;
-      });
-      
-      const zones = await Promise.all(zonePromises);
-      serviceZones = zones.filter(zone => zone !== null);
-      
-      console.log(`Loaded ${serviceZones.length} service zones out of ${providers.length} providers`);
-    } catch (error) {
-      console.error('Error fetching service zones:', error);
-    } finally {
-      loadingZones = false;
+      } catch (error) {
+        console.error(`Error fetching service zone for ${providerName}:`, error);
+      } finally {
+        loadingZones = false;
+      }
     }
   }
   
@@ -271,8 +270,9 @@
 
   function handleCloseProviderResults() {
     showProviderResults = false;
-    // Optionally clear service zones when closing
+    // Clear service zones and visible zones when closing
     serviceZones = [];
+    visibleZones = new Set();
   }
   
   function toggleExamplesPanel() {
@@ -633,8 +633,10 @@
   <ProviderResults 
     {providerData}
     {loadingZones}
+    {visibleZones}
     show={showProviderResults}
     on:close={handleCloseProviderResults}
+    on:toggleZone={(event) => toggleServiceZone(event.detail.providerId, event.detail.providerName, event.detail.index)}
   />
 {/if}
 

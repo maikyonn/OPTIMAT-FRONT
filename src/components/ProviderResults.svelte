@@ -4,11 +4,16 @@
   export let providerData = null;
   export let show = false;
   export let loadingZones = false;
+  export let visibleZones = new Set();
   
   const dispatch = createEventDispatcher();
   
   function closeWindow() {
     dispatch('close');
+  }
+  
+  function toggleServiceZone(providerId, providerName, index) {
+    dispatch('toggleZone', { providerId, providerName, index });
   }
   
   function formatServiceHours(hoursString) {
@@ -167,6 +172,34 @@
                         </div>
                       {/if}
                     </dl>
+                    
+                    <!-- Service Zone Toggle Button -->
+                    <div class="mt-3 pt-3 border-t border-gray-100">
+                      <button
+                        class="inline-flex items-center space-x-2 px-3 py-1.5 text-xs font-medium rounded-md transition-colors {
+                          visibleZones.has(provider.provider_id)
+                            ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }"
+                        on:click={() => toggleServiceZone(provider.provider_id, provider.provider_name, index)}
+                        disabled={loadingZones}
+                      >
+                        {#if loadingZones}
+                          <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
+                          <span>Loading...</span>
+                        {:else if visibleZones.has(provider.provider_id)}
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"/>
+                          </svg>
+                          <span>Hide Service Zone</span>
+                        {:else}
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+                          </svg>
+                          <span>Show Service Zone</span>
+                        {/if}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

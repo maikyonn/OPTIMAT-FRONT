@@ -1,13 +1,15 @@
 <script>
     import { onMount, createEventDispatcher } from 'svelte';
     import { BACKEND_URL } from '../config';
+    import { fade, fly, slide } from 'svelte/transition';
     
     const dispatch = createEventDispatcher();
   
     let messages = [
       {
         role: 'ai',
-        content: "Hello! I'm here to help you find paratransit providers. How can I assist you today?"
+        content: "Hello! I'm here to help you find paratransit providers. How can I assist you today?",
+        id: 'initial-greeting'
       }
     ];
     
@@ -102,11 +104,13 @@
   
       const newMessage = {
         role: 'human',
-        content: userInput
+        content: userInput,
+        id: `human-${Date.now()}`
       };
   
       messages = [...messages, newMessage];
       userInput = ''; // Clear input immediately
+      scrollToBottom();
   
       try {
         const response = await fetch(`${BACKEND_URL}/api-chat/`, {
@@ -132,12 +136,16 @@
             (m.role === 'ai' || m.role === 'human' || m.role === 'system') && 
             typeof m.content === 'string' && 
             m.content.trim() !== ''
-          );
+          ).map((m, i) => ({
+            ...m,
+            id: m.id || `response-${Date.now()}-${i}`
+          }));
           
           // Check for provider data in tool calls
           checkForProviderData(responseMessages);
           
           messages = [...messages, ...validMessages];
+          scrollToBottom();
         }
       } catch (e) {
         error = e.message;
@@ -263,7 +271,9 @@
         
         // Progressive state reconstruction and message loading
         for (let i = 0; i < conversationStates.length; i++) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Variable delay - faster for initial messages, slower for later ones
+          const delay = Math.min(600 + (i * 100), 1200);
+          await new Promise(resolve => setTimeout(resolve, delay));
           
           // Check if we're still viewing this example (user might have navigated away)
           if (!isViewingExample || currentExample?.id !== example.id) {
@@ -272,8 +282,12 @@
           
           const stateSnapshot = conversationStates[i];
           
-          // Add the message
-          messages = [...messages, stateSnapshot.message];
+          // Add the message with a unique ID for animation
+          const messageWithId = {
+            ...stateSnapshot.message,
+            id: stateSnapshot.message.id || `example-${i}-${Date.now()}`
+          };
+          messages = [...messages, messageWithId];
           
           // Apply the conversation state
           await applyConversationState(stateSnapshot.state);
@@ -343,7 +357,8 @@
       conversationId = null;
       messages = [{
         role: 'ai',
-        content: "Hello! I'm here to help you find paratransit providers. How can I assist you today?"
+        content: "Hello! I'm here to help you find paratransit providers. How can I assist you today?",
+        id: 'new-conversation-greeting'
       }];
       
       // Initialize a new conversation
@@ -352,12 +367,19 @@
       }
     }
     
-    function scrollToBottom() {
+    function scrollToBottom(smooth = true) {
       // Scroll chat window to bottom
       setTimeout(() => {
         const chatWindow = document.querySelector('.chat-messages');
         if (chatWindow) {
-          chatWindow.scrollTop = chatWindow.scrollHeight;
+          if (smooth) {
+            chatWindow.scrollTo({
+              top: chatWindow.scrollHeight,
+              behavior: 'smooth'
+            });
+          } else {
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+          }
         }
       }, 100);
     }
@@ -422,9 +444,11 @@
         // Show success message
         const successMessage = {
           role: 'system',
-          content: `✅ This conversation has been saved as an example${exampleForm.title ? ': "' + exampleForm.title + '"' : ''}!`
+          content: `✅ This conversation has been saved as an example${exampleForm.title ? ': "' + exampleForm.title + '"' : ''}!`,
+          id: `success-${Date.now()}`
         };
         messages = [...messages, successMessage];
+        scrollToBottom();
         
         closeExampleForm();
         
@@ -486,9 +510,17 @@
     {/if}
   
     <!-- Chat messages -->
-    <div class="flex-1 overflow-y-auto px-4 pt-4 pb-0 space-y-4 chat-messages">
-      {#each messages.filter(m => (m.role === 'ai' || m.role === 'human' || m.role === 'system') && typeof m.content === 'string' && m.content.trim() !== '') as message, index}
-        <div class="flex flex-col {message.role === 'human' ? 'items-end' : 'items-start'}">
+    <div class="flex-1 overflow-y-auto px-4 pt-4 pb-0 space-y-4 chat-messages scroll-smooth">
+      {#each messages.filter(m => (m.role === 'ai' || m.role === 'human' || m.role === 'system') && typeof m.content === 'string' && m.content.trim() !== '') as message, index (message.id || `${message.role}-${index}-${message.content.substring(0, 20)}`)}
+        <div 
+          class="flex flex-col {message.role === 'human' ? 'items-end' : 'items-start'}"
+          in:fly={{ 
+            x: message.role === 'human' ? 30 : -30, 
+            y: 10,
+            duration: 500,
+            delay: 0
+          }}
+        >
           <div class="max-w-[80%] rounded-lg p-3 {
             message.role === 'human'
               ? 'bg-indigo-600 text-white'
@@ -512,20 +544,25 @@
               <p class="whitespace-pre-wrap">{message.content}</p>
             {/if}
           </div>
-          <span class="text-xs text-gray-500 mt-1">
+          <span class="text-xs text-gray-500 mt-1 opacity-60">
             {message.role}
           </span>
         </div>
       {/each}
   
       {#if loading}
-        <div class="flex justify-center">
-          <div class="animate-pulse text-gray-500">
-            Thinking...
+        <div class="flex justify-center" in:fade={{ duration: 300 }}>
+          <div class="animate-pulse text-gray-500 flex items-center space-x-2">
+            <div class="flex space-x-1">
+              <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
+              <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
+              <div class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
+            </div>
+            <span>Thinking</span>
           </div>
         </div>
       {:else if isLoadingExample}
-        <div class="flex justify-center">
+        <div class="flex justify-center" in:fade={{ duration: 300 }}>
           <div class="animate-pulse text-gray-500 flex items-center space-x-2">
             <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
             <span>Loading example conversation...</span>
@@ -683,3 +720,18 @@
       </div>
     {/if}
   </div>
+
+  <style>
+    .chat-messages {
+      scroll-behavior: smooth;
+    }
+    
+    @keyframes bounce {
+      0%, 80%, 100% {
+        transform: translateY(0);
+      }
+      40% {
+        transform: translateY(-10px);
+      }
+    }
+  </style>
