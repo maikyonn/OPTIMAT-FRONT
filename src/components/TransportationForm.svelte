@@ -68,11 +68,15 @@
     returnTime: formatDateTimeLocal(fourHoursLater),
     originAddress: predefinedOrigins[0].address,
     destinationAddress: predefinedDestinations[0].address,
-    eligibility: [],
-    equipment: [],
-    healthConditions: [],
-    needsCompanion: false,
-    allowsSharing: false
+    providerType: '',
+    routingType: '',
+    scheduleType: '',
+    planningType: '',
+    eligibilityReq: '',
+    providerOrg: '',
+    providerNameContains: '',
+    isOperating: null,
+    hasServiceZone: null
   };
 
   function handleSubmit() {
@@ -347,26 +351,142 @@
       </select>
     </div>
 
+    <!-- Provider Type Filter -->
     <div class="space-y-2">
-      <label for="needsCompanion" class="block text-sm font-medium text-gray-700">Needs Companion</label>
-      <input 
-        id="needsCompanion"
-        type="checkbox" 
-        bind:checked={formData.needsCompanion}
+      <label for="providerType" class="block text-sm font-medium text-gray-700">Provider Type (Optional)</label>
+      <select 
+        id="providerType"
+        bind:value={formData.providerType}
         class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        required
+      >
+        <option value="">All Types</option>
+        <option value="Bus">Bus</option>
+        <option value="Train">Train</option>
+        <option value="Shuttle">Shuttle</option>
+        <option value="Paratransit">Paratransit</option>
+        <option value="On-demand">On-demand</option>
+        <option value="ADA-para">ADA Paratransit</option>
+        <option value="volunteer-driver">Volunteer Driver</option>
+      </select>
+    </div>
+
+    <!-- Routing Type Filter -->
+    <div class="space-y-2">
+      <label for="routingType" class="block text-sm font-medium text-gray-700">Routing Type (Optional)</label>
+      <select 
+        id="routingType"
+        bind:value={formData.routingType}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+      >
+        <option value="">All Routing Types</option>
+        <option value="Fixed">Fixed Route</option>
+        <option value="Flexible">Flexible Route</option>
+        <option value="On-demand">On-demand</option>
+        <option value="door-to-door">Door-to-door</option>
+        <option value="curb-to-curb">Curb-to-curb</option>
+      </select>
+    </div>
+
+    <!-- Schedule Type Filter -->
+    <div class="space-y-2">
+      <label for="scheduleType" class="block text-sm font-medium text-gray-700">Schedule Type (Optional)</label>
+      <select 
+        id="scheduleType"
+        bind:value={formData.scheduleType}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+      >
+        <option value="">All Schedule Types</option>
+        <option value="Static">Static</option>
+        <option value="Dynamic">Dynamic</option>
+        <option value="Real-time">Real-time</option>
+      </select>
+    </div>
+
+    <!-- Planning Type Filter -->
+    <div class="space-y-2">
+      <label for="planningType" class="block text-sm font-medium text-gray-700">Planning Type (Optional)</label>
+      <select 
+        id="planningType"
+        bind:value={formData.planningType}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+      >
+        <option value="">All Planning Types</option>
+        <option value="Manual">Manual</option>
+        <option value="Algorithmic">Algorithmic</option>
+        <option value="Hybrid">Hybrid</option>
+      </select>
+    </div>
+
+    <!-- Eligibility Requirements Filter -->
+    <div class="space-y-2">
+      <label for="eligibilityReq" class="block text-sm font-medium text-gray-700">Eligibility Requirements (Optional)</label>
+      <input 
+        id="eligibilityReq"
+        type="text" 
+        bind:value={formData.eligibilityReq}
+        placeholder="e.g., General Public, Senior"
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
       />
     </div>
 
+    <!-- Provider Organization Filter -->
     <div class="space-y-2">
-      <label for="allowsSharing" class="block text-sm font-medium text-gray-700">Allows Sharing</label>
+      <label for="providerOrg" class="block text-sm font-medium text-gray-700">Provider Organization (Optional)</label>
       <input 
-        id="allowsSharing"
-        type="checkbox" 
-        bind:checked={formData.allowsSharing}
+        id="providerOrg"
+        type="text" 
+        bind:value={formData.providerOrg}
+        placeholder="e.g., Metro Transit"
         class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-        required
       />
+    </div>
+
+    <!-- Provider Name Search -->
+    <div class="space-y-2">
+      <label for="providerNameContains" class="block text-sm font-medium text-gray-700">Provider Name Contains (Optional)</label>
+      <input 
+        id="providerNameContains"
+        type="text" 
+        bind:value={formData.providerNameContains}
+        placeholder="e.g., transit"
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+      />
+    </div>
+
+    <!-- Currently Operating Filter -->
+    <div class="space-y-2">
+      <label for="isOperating" class="block text-sm font-medium text-gray-700">Operating Status (Optional)</label>
+      <select 
+        id="isOperating"
+        bind:value={formData.isOperating}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        on:change={(e) => {
+          const val = e.target.value;
+          formData.isOperating = val === 'null' ? null : val === 'true';
+        }}
+      >
+        <option value="null">Any</option>
+        <option value="true">Currently Operating Only</option>
+        <option value="false">Not Currently Operating</option>
+      </select>
+    </div>
+
+    <!-- Has Service Zone Filter -->
+    <div class="space-y-2">
+      <label for="hasServiceZone" class="block text-sm font-medium text-gray-700">Service Zone (Optional)</label>
+      <select 
+        id="hasServiceZone"
+        bind:value={formData.hasServiceZone}
+        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+        on:change={(e) => {
+          const val = e.target.value;
+          formData.hasServiceZone = val === 'null' ? null : val === 'true';
+        }}
+      >
+        <option value="null">Any</option>
+        <option value="true">Has Service Zone Only</option>
+        <option value="false">No Service Zone</option>
+      </select>
     </div>
 
     <div class="space-y-2">

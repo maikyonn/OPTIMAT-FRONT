@@ -1,6 +1,8 @@
 <script>
-    import { onMount } from 'svelte';
+    import { onMount, createEventDispatcher } from 'svelte';
     import { BACKEND_URL } from '../config';
+    
+    const dispatch = createEventDispatcher();
   
     let messages = [
       {
@@ -115,6 +117,10 @@
             typeof m.content === 'string' && 
             m.content.trim() !== ''
           );
+          
+          // Check for provider data in tool calls
+          checkForProviderData(responseMessages);
+          
           messages = [...messages, ...validMessages];
         }
       } catch (e) {
@@ -125,6 +131,93 @@
         loading = false;
       }
     }
+
+    function checkForProviderData(responseMessages) {
+      // Look for messages that contain provider data from tool calls
+      for (const message of responseMessages) {
+        try {
+          // Check if message content contains JSON with provider data
+          if (message.content && typeof message.content === 'string') {
+            // Look for JSON that contains "data" field (our tool call format)
+            const jsonMatch = message.content.match(/\{[\s\S]*"data"[\s\S]*\}/);
+            if (jsonMatch) {
+              try {
+                const toolResult = JSON.parse(jsonMatch[0]);
+                console.log('Parsed tool result:', toolResult);
+                
+                // Check if it has the expected format from find_providers tool
+                if (toolResult.data && Array.isArray(toolResult.data)) {
+                  const providerData = {
+                    data: toolResult.data,
+                    source_address: toolResult.source_address,
+                    destination_address: toolResult.destination_address
+                  };
+                  // Emit event instead of showing popup
+                  dispatch('providersFound', providerData);
+                  console.log('Emitted providers found event:', providerData);
+                  break; // Found provider data, no need to check other messages
+                }
+              } catch (e) {
+                console.log('Failed to parse JSON from message content:', e);
+              }
+            }
+            
+            // Also check for legacy format (just in case)
+            const legacyJsonMatch = message.content.match(/\{[\s\S]*"providers"[\s\S]*\}/);
+            if (legacyJsonMatch) {
+              try {
+                const legacyData = JSON.parse(legacyJsonMatch[0]);
+                if (legacyData.providers && Array.isArray(legacyData.providers)) {
+                  const providerData = {
+                    data: legacyData.providers,
+                    source_address: legacyData.source_address,
+                    destination_address: legacyData.destination_address
+                  };
+                  dispatch('providersFound', providerData);
+                  console.log('Emitted providers found event from legacy format:', providerData);
+                  break;
+                }
+              } catch (e) {
+                console.log('Failed to parse legacy JSON format:', e);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing provider data from message:', e);
+        }
+      }
+      
+      // Also check for addresses in the messages to update map
+      checkForAddresses(responseMessages);
+    }
+    
+    function checkForAddresses(responseMessages) {
+      // Look for addresses in AI responses and user messages
+      const allMessages = [...messages, ...responseMessages];
+      
+      for (const message of allMessages.slice(-5)) { // Check last 5 messages
+        if (message.content && typeof message.content === 'string') {
+          // Look for common address patterns
+          const addressPatterns = [
+            /(?:from|origin|start|pickup|at|located at|live at|staying at)\s*:?\s*([^,.!?;]+(?:street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|way|lane|ln|place|pl|court|ct|circle|cir|parkway|pkwy|highway|hwy|freeway|fwy)[^,.!?;]*)/i,
+            /(?:to|destination|going to|headed to|drop off|end)\s*:?\s*([^,.!?;]+(?:street|st|avenue|ave|road|rd|drive|dr|boulevard|blvd|way|lane|ln|place|pl|court|ct|circle|cir|parkway|pkwy|highway|hwy|freeway|fwy)[^,.!?;]*)/i,
+            /([^,.!?;]*(?:target|walmart|safeway|kaiser|bart|plaza|shopping center|mall|hospital|medical|clinic|library|school|university|college|airport|station)[^,.!?;]*)/i
+          ];
+          
+          for (const pattern of addressPatterns) {
+            const match = message.content.match(pattern);
+            if (match && match[1]) {
+              const address = match[1].trim();
+              if (address.length > 5) { // Minimum viable address length
+                console.log('Found potential address:', address);
+                dispatch('addressFound', { address, messageRole: message.role });
+              }
+            }
+          }
+        }
+      }
+    }
+
 </script> 
   <div class="flex flex-col h-full">
     {#if !serverOnline}

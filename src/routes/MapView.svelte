@@ -103,16 +103,30 @@
     
     try {
       const apiPath = window.location.hostname === 'localhost' ? '/providers/filter' : '/api-providers/providers/filter';
+      
+      // Build the request body with all filter fields
+      const requestBody = {
+        source_address: formData.originAddress,
+        destination_address: formData.destinationAddress
+      };
+      
+      // Add optional filters only if they have values
+      if (formData.providerType) requestBody.provider_type = formData.providerType;
+      if (formData.routingType) requestBody.routing_type = formData.routingType;
+      if (formData.scheduleType) requestBody.schedule_type = formData.scheduleType;
+      if (formData.planningType) requestBody.planning_type = formData.planningType;
+      if (formData.eligibilityReq) requestBody.eligibility_req = formData.eligibilityReq;
+      if (formData.providerOrg) requestBody.provider_org = formData.providerOrg;
+      if (formData.providerNameContains) requestBody.provider_name__contains = formData.providerNameContains;
+      if (formData.isOperating !== null) requestBody.is_operating = formData.isOperating;
+      if (formData.hasServiceZone !== null) requestBody.has_service_zone = formData.hasServiceZone;
+      
       const response = await fetch(`${BACKEND_URL}${apiPath}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          source_address: formData.originAddress,
-          destination_address: formData.destinationAddress,
-          is_operating: true
-        })
+        body: JSON.stringify(requestBody)
       });
       
       if (!response.ok) {
