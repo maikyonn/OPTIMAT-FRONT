@@ -4,6 +4,50 @@
     import { fade, fly, slide } from 'svelte/transition';
     
     const dispatch = createEventDispatcher();
+    
+    // Typewriter effect component
+    function typewriterAction(node, { text, maxDuration = 2000, messageId, onComplete = null }) {
+        let i = 0;
+        let currentText = '';
+        let timeoutId;
+        let isDestroyed = false;
+        
+        // Calculate simple speed to fit within maxDuration
+        const availableTime = maxDuration - 100; // subtract initial delay
+        const speed = Math.max(5, availableTime / text.length); // minimum 5ms per character
+        
+        // Add typing indicator to the set
+        typingMessages.add(messageId);
+        typingMessages = typingMessages; // Trigger reactivity
+        
+        function type() {
+            if (isDestroyed || i >= text.length) {
+                // Remove typing indicator
+                typingMessages.delete(messageId);
+                typingMessages = typingMessages; // Trigger reactivity
+                if (onComplete) onComplete();
+                return;
+            }
+            
+            currentText += text.charAt(i);
+            node.textContent = currentText;
+            i++;
+            
+            timeoutId = setTimeout(type, speed);
+        }
+        
+        // Start typing with a small delay to allow the message to appear first
+        timeoutId = setTimeout(type, 100);
+        
+        return {
+            destroy() {
+                isDestroyed = true;
+                if (timeoutId) clearTimeout(timeoutId);
+                typingMessages.delete(messageId);
+                typingMessages = typingMessages; // Trigger reactivity
+            }
+        };
+    }
   
     let messages = [
       {
@@ -33,6 +77,12 @@
     let isViewingExample = false;
     let currentExample = null;
     let isLoadingExample = false;
+    let examplePlaybackPaused = false;
+    let currentExampleIndex = 0; // Track current message index in example
+    let totalExampleStates = 0; // Total number of states in current example
+    
+    // Typewriter effect state
+    let typingMessages = new Set(); // Track which messages are currently typing
 
     async function checkServerHealth() {
       try {
@@ -133,7 +183,7 @@
         
         if (responseMessages) {
           const validMessages = responseMessages.filter(m => 
-            (m.role === 'ai' || m.role === 'human' || m.role === 'system') && 
+            (m.role === 'ai' || m.role === 'human') && 
             typeof m.content === 'string' && 
             m.content.trim() !== ''
           ).map((m, i) => ({
@@ -157,6 +207,8 @@
     }
 
     function checkForProviderData(responseMessages) {
+      console.log('Checking for provider data, isViewingExample:', isViewingExample);
+      
       // Look for messages that contain provider data from tool calls
       for (const message of responseMessages) {
         try {
@@ -248,44 +300,55 @@
       return serverOnline;
     }
     
-    // Example viewing functionality with state reconstruction
-    export async function loadExampleWithStates(conversationStates, example) {
-      try {
-        isViewingExample = true;
-        isLoadingExample = true;
-        currentExample = example;
+    // Export functions to control example playback
+    export function pauseExamplePlayback() {
+      if (isViewingExample && isLoadingExample) {
+        examplePlaybackPaused = true;
+        console.log('Example playback paused');
+      }
+    }
+    
+    export function resumeExamplePlayback() {
+      if (isViewingExample && examplePlaybackPaused) {
+        examplePlaybackPaused = false;
+        console.log('Example playback resumed');
+        // If we were in the middle of loading, continue from where we left off
+        if (currentExampleIndex < totalExampleStates) {
+          continueExamplePlayback();
+        }
+      }
+    }
+    
+    async function continueExamplePlayback() {
+      // Load next message from current index, processing system messages but not displaying them
+      const conversationStates = currentExample?._conversationStates;
+      if (!conversationStates || currentExampleIndex >= conversationStates.length) {
+        isLoadingExample = false;
+        return;
+      }
+      
+      // Check if paused or not viewing example
+      if (examplePlaybackPaused || !isViewingExample) {
+        return;
+      }
+      
+      // Process system messages and empty AI messages automatically without displaying them
+      while (currentExampleIndex < conversationStates.length) {
+        const stateSnapshot = conversationStates[currentExampleIndex];
+        const message = stateSnapshot.message;
         
-        // Reset conversation state and clear all messages
-        conversationId = null;
-        error = null;
-        messages = []; // Clear all messages first
-        
-        // Add header message
-        const headerMessage = {
-          role: 'system',
-          content: `📖 Viewing example: "${example.title || 'Untitled Example'}"\n${example.description || ''}`
-        };
-        messages = [headerMessage];
-        
-        // Don't add the default AI greeting since it's already in the example
-        
-        // Progressive state reconstruction and message loading
-        for (let i = 0; i < conversationStates.length; i++) {
-          // Variable delay - faster for initial messages, slower for later ones
-          const delay = Math.min(600 + (i * 100), 1200);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          
-          // Check if we're still viewing this example (user might have navigated away)
-          if (!isViewingExample || currentExample?.id !== example.id) {
-            break;
-          }
-          
-          const stateSnapshot = conversationStates[i];
-          
-          // Add the message with a unique ID for animation
+        // Skip system messages and empty AI messages
+        if (message.role === 'system' || 
+            (message.role === 'ai' && (!message.content || message.content.trim() === ''))) {
+          // Process message state but don't display the message
+          await applyConversationState(stateSnapshot.state);
+          currentExampleIndex++;
+          continue; // Continue to next message automatically
+        } else {
+          // This is a user message or AI message with content - display it and stop
           const messageWithId = {
-            ...stateSnapshot.message,
-            id: stateSnapshot.message.id || `example-${i}-${Date.now()}`
+            ...message,
+            id: message.id || `example-${currentExampleIndex}-${Date.now()}`
           };
           messages = [...messages, messageWithId];
           
@@ -293,10 +356,39 @@
           await applyConversationState(stateSnapshot.state);
           
           scrollToBottom();
+          currentExampleIndex++;
+          break; // Stop after displaying one user/AI message
         }
-        
+      }
+      
+      // Check if this was the last message
+      if (currentExampleIndex >= conversationStates.length) {
         isLoadingExample = false;
-        console.log('Loaded example conversation with states:', example);
+        console.log('Finished loading example conversation with states:', currentExample);
+      }
+    }
+    
+    // Example viewing functionality with state reconstruction
+    export async function loadExampleWithStates(conversationStates, example) {
+      try {
+        isViewingExample = true;
+        isLoadingExample = true;
+        examplePlaybackPaused = false;
+        currentExample = { ...example, _conversationStates: conversationStates };
+        currentExampleIndex = 0;
+        totalExampleStates = conversationStates.length;
+        
+        // Reset conversation state and clear all messages
+        conversationId = null;
+        error = null;
+        messages = []; // Clear all messages first
+        
+        // Load the first message
+        await continueExamplePlayback();
+        
+        // Set loading to false after first message loads
+        isLoadingExample = false;
+        
       } catch (error) {
         console.error('Error loading example conversation with states:', error);
         isLoadingExample = false;
@@ -314,6 +406,11 @@
           console.log('Dispatching providersFound event...');
           dispatch('providersFound', state.providers);
           console.log('Provider event dispatched successfully');
+          
+          // For examples, we want providers to show immediately
+          if (isViewingExample) {
+            console.log('Example mode: Ensuring provider popup shows');
+          }
         } else {
           console.log('No providers in state');
         }
@@ -353,7 +450,10 @@
     export function startNewConversation() {
       isViewingExample = false;
       isLoadingExample = false;
+      examplePlaybackPaused = false;
       currentExample = null;
+      currentExampleIndex = 0;
+      totalExampleStates = 0;
       conversationId = null;
       messages = [{
         role: 'ai',
@@ -511,7 +611,7 @@
   
     <!-- Chat messages -->
     <div class="flex-1 overflow-y-auto px-4 pt-4 pb-0 space-y-4 chat-messages scroll-smooth">
-      {#each messages.filter(m => (m.role === 'ai' || m.role === 'human' || m.role === 'system') && typeof m.content === 'string' && m.content.trim() !== '') as message, index (message.id || `${message.role}-${index}-${message.content.substring(0, 20)}`)}
+      {#each messages.filter(m => (m.role === 'ai' || m.role === 'human') && typeof m.content === 'string' && m.content.trim() !== '') as message, index (message.id || `${message.role}-${index}-${message.content.substring(0, 20)}`)}
         <div 
           class="flex flex-col {message.role === 'human' ? 'items-end' : 'items-start'}"
           in:fly={{ 
@@ -524,24 +624,24 @@
           <div class="max-w-[80%] rounded-lg p-3 {
             message.role === 'human'
               ? 'bg-indigo-600 text-white'
-              : message.role === 'system'
-                ? 'bg-yellow-100 text-gray-700'
-                : 'bg-gray-100 text-gray-900'
+              : 'bg-gray-100 text-gray-900'
           }">
-            {#if message.role === 'system'}
-              <div class="flex items-center space-x-2">
-                <svg class="h-4 w-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                <p class="whitespace-pre-wrap">
-                  Searched Providers
-                  {#if messages.filter(m => m.role === 'system').length > 0}
-                    x{messages.filter((m, i) => i <= index && m.role === 'system').length}
-                  {/if}
-                </p>
-              </div>
-            {:else}
+            {#if message.role === 'human' && !isViewingExample}
+              <!-- User messages in live chat: no typing animation -->
               <p class="whitespace-pre-wrap">{message.content}</p>
+            {:else}
+              <!-- AI messages and all messages in examples: typing animation -->
+              <p 
+                class="whitespace-pre-wrap inline"
+                use:typewriterAction={{ 
+                  text: message.content, 
+                  maxDuration: 2000, 
+                  messageId: message.id 
+                }}
+              ></p>
+              {#if typingMessages.has(message.id)}
+                <span class="typing-cursor">|</span>
+              {/if}
             {/if}
           </div>
           <span class="text-xs text-gray-500 mt-1 opacity-60">
@@ -613,6 +713,27 @@
           </div>
         </div>
       </form>
+    {:else}
+      <!-- Continue button for example viewing -->
+      <div class="border-t p-4 bg-white flex-shrink-0">
+        <div class="flex justify-end">
+          {#if currentExampleIndex < totalExampleStates}
+            <button
+              on:click={continueExamplePlayback}
+              class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 flex items-center space-x-2"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+              </svg>
+              <span>Continue</span>
+            </button>
+          {:else}
+            <div class="text-sm text-gray-500 italic">
+              Example completed
+            </div>
+          {/if}
+        </div>
+      </div>
     {/if}
 
     <!-- Save as Example Modal -->
@@ -732,6 +853,22 @@
       }
       40% {
         transform: translateY(-10px);
+      }
+    }
+    
+    .typing-cursor {
+      display: inline-block;
+      animation: blink 1s infinite;
+      font-weight: bold;
+      margin-left: 1px;
+    }
+    
+    @keyframes blink {
+      0%, 50% {
+        opacity: 1;
+      }
+      51%, 100% {
+        opacity: 0;
       }
     }
   </style>

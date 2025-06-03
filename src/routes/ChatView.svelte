@@ -11,8 +11,9 @@
   let showChat = false;
   let showProviderResults = false;
   let providerData = null;
-  let originMarker = [37.9020731, -122.0618702]; // Default to Walnut Creek
-  let destinationMarker = [37.9020731, -122.0618702];
+  let viewMode = 'chat'; // 'chat' or 'providers'
+  let originMarker = null; // No default marker
+  let destinationMarker = null; // No default marker
   let foundAddresses = [];
   
   // Chat examples functionality
@@ -135,9 +136,17 @@
   }
 
   async function handleProvidersFound(event) {
+    console.log('handleProvidersFound called with:', event.detail);
     providerData = event.detail;
     showProviderResults = true;
-    console.log('Providers found, showing results window');
+    viewMode = 'providers'; // Switch to provider view
+    console.log('Providers found, switching to provider view. providerData:', providerData);
+    console.log('viewMode:', viewMode, 'showProviderResults:', showProviderResults);
+    
+    // Pause example playback if currently playing
+    if (chatComponent) {
+      chatComponent.pauseExamplePlayback();
+    }
     
     // Reset visible zones when new providers are found
     visibleZones = new Set();
@@ -270,18 +279,29 @@
 
   function handleCloseProviderResults() {
     showProviderResults = false;
+    viewMode = 'chat'; // Switch back to chat view
     // Clear service zones and visible zones when closing
     serviceZones = [];
     visibleZones = new Set();
-  }
-  
-  function toggleExamplesPanel() {
-    showExamplesPanel = !showExamplesPanel;
-    // Reload examples when opening panel
-    if (showExamplesPanel && serverOnline) {
-      loadChatExamples();
+    
+    // Resume example playback if it was paused
+    if (chatComponent) {
+      chatComponent.resumeExamplePlayback();
     }
   }
+  
+  function backToChat() {
+    viewMode = 'chat';
+    showProviderResults = false;
+    serviceZones = [];
+    visibleZones = new Set();
+    
+    // Resume example playback if it was paused
+    if (chatComponent) {
+      chatComponent.resumeExamplePlayback();
+    }
+  }
+  
   
   async function viewChatExample(example) {
     try {
@@ -358,19 +378,32 @@
     }
     
     // Build states for each message
+    let providersAlreadyShown = false;
+    
     for (let i = 0; i < sortedMessages.length; i++) {
       const message = sortedMessages[i];
       
       // Check if this is the AI message that should show providers
-      // Look for key phrases that indicate provider results
-      const shouldShowProviders = message.role === 'ai' && 
+      // Look for more specific phrases that indicate the first provider result message
+      const isProviderMessage = message.role === 'ai' && 
         currentProviders && 
-        (message.content.includes('found') || 
-         message.content.includes('provider') || 
-         message.content.includes('LINK') ||
-         message.content.includes('County Connection'));
+        (message.content.includes('I found a provider') || 
+         message.content.includes('found a provider') ||
+         message.content.includes('found providers') ||
+         message.content.includes('I found several transportation') ||
+         message.content.includes('I found the nearest') ||
+         message.content.includes('found the nearest') ||
+         (message.content.includes('provider') && message.content.includes('take you')) ||
+         (message.content.includes('Trip Details') && message.content.includes('From:')));
       
-      console.log(`Message ${i} (${message.role}): show providers = ${shouldShowProviders}`);
+      // Only show providers on the first matching message
+      const shouldShowProviders = isProviderMessage && !providersAlreadyShown;
+      
+      if (shouldShowProviders) {
+        providersAlreadyShown = true;
+      }
+      
+      console.log(`Message ${i} (${message.role}): "${message.content.substring(0, 50)}..." - isProviderMessage: ${isProviderMessage}, shouldShowProviders: ${shouldShowProviders}`);
       
       states.push({
         message: message,
@@ -459,29 +492,15 @@
     {/key}
   </div>
 
-  <!-- Examples Panel -->
-  {#if showExamplesPanel && showChat}
+  <!-- Examples Panel - Always Visible -->
+  {#if showChat && viewMode === 'chat'}
     <div 
-      class="fixed top-6 left-20 z-40 w-80 h-[calc(100vh-3rem)]"
-      in:fly={{ x: -50, duration: 600, delay: 200 }}
+      class="fixed bottom-40 left-6 z-40 max-w-sm max-h-80"
+      in:fly={{ y: 50, duration: 600, delay: 400 }}
     >
-      <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 h-full flex flex-col">
-        <div class="p-4 border-b border-gray-200 flex-shrink-0">
-          <div class="flex items-center justify-between">
-            <h3 class="text-lg font-bold text-gray-900">Chat Examples</h3>
-            <button
-              on:click={toggleExamplesPanel}
-              class="text-gray-400 hover:text-gray-600 transition-colors"
-              aria-label="Close examples panel"
-            >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-          <p class="text-gray-600 mt-1 text-xs">
-            View saved conversation examples
-          </p>
+      <div class="bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 flex flex-col">
+        <div class="p-3 border-b border-gray-200 flex-shrink-0">
+          <h3 class="text-sm font-bold text-gray-900">Chat Examples</h3>
           
           {#if !serverOnline}
             <div class="bg-yellow-50 border border-yellow-200 rounded p-2 mt-2">
@@ -493,64 +512,48 @@
         </div>
         
         <!-- Examples List -->
-        <div class="flex-1 overflow-y-auto p-3 space-y-2">
+        <div class="overflow-y-auto p-2 space-y-1 max-h-64">
           {#if loadingExamples}
-            <div class="flex items-center justify-center py-8">
-              <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-              <span class="ml-2 text-sm text-gray-600">Loading examples...</span>
+            <div class="flex items-center justify-center py-4">
+              <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
+              <span class="ml-2 text-xs text-gray-600">Loading...</span>
             </div>
           {:else if chatExamples.length === 0}
-            <div class="text-center py-8">
-              <svg class="mx-auto h-12 w-12 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10m-10 4h10m-10 4h10" />
-              </svg>
-              <p class="text-sm text-gray-500 mt-2">No examples available yet</p>
-              <p class="text-xs text-gray-400 mt-1">Save conversations as examples to see them here</p>
+            <div class="text-center py-4">
+              <p class="text-xs text-gray-500">No examples available yet</p>
             </div>
           {:else}
             {#each chatExamples as example}
               <button
-                class="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-all duration-200"
+                class="w-full text-left p-2 border border-gray-200 rounded hover:border-indigo-300 hover:bg-indigo-50 transition-all duration-200"
                 on:click={() => viewChatExample(example)}
                 disabled={!serverOnline}
               >
-                <div class="flex items-start justify-between">
-                  <div class="flex-1">
-                    <h4 class="font-medium text-gray-900 text-sm">
-                      {example.title || 'Untitled Example'}
-                    </h4>
-                    {#if example.description}
-                      <p class="text-xs text-gray-600 mt-1">{example.description}</p>
+                <h4 class="font-medium text-gray-900 text-xs">
+                  {example.title || 'Untitled Example'}
+                </h4>
+                {#if example.description}
+                  <p class="text-xs text-gray-600 mt-1 line-clamp-2">{example.description}</p>
+                {/if}
+                {#if example.tags && example.tags.length > 0}
+                  <div class="flex flex-wrap gap-1 mt-1">
+                    {#each example.tags.slice(0, 2) as tag}
+                      <span class="inline-block bg-indigo-100 text-indigo-800 text-xs px-1 py-0.5 rounded">
+                        {tag}
+                      </span>
+                    {/each}
+                    {#if example.tags.length > 2}
+                      <span class="text-xs text-gray-500">+{example.tags.length - 2}</span>
                     {/if}
-                    {#if example.tags && example.tags.length > 0}
-                      <div class="flex flex-wrap gap-1 mt-2">
-                        {#each example.tags.slice(0, 3) as tag}
-                          <span class="inline-block bg-indigo-100 text-indigo-800 text-xs px-2 py-0.5 rounded">
-                            {tag}
-                          </span>
-                        {/each}
-                        {#if example.tags.length > 3}
-                          <span class="text-xs text-gray-500">+{example.tags.length - 3} more</span>
-                        {/if}
-                      </div>
-                    {/if}
-                    <p class="text-xs text-gray-400 mt-1">
-                      Created {new Date(example.created_at).toLocaleDateString()}
-                    </p>
                   </div>
-                  <div class="flex items-center ml-2">
-                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                    </svg>
-                  </div>
-                </div>
+                {/if}
               </button>
             {/each}
           {/if}
         </div>
         
         {#if examplesError}
-          <div class="p-3 border-t border-gray-200 bg-red-50">
+          <div class="p-2 border-t border-gray-200 bg-red-50">
             <p class="text-xs text-red-700">
               <strong>Error:</strong> {examplesError}
             </p>
@@ -560,31 +563,21 @@
     </div>
   {/if}
 
-  <!-- Floating Chat Container -->
+  <!-- Main Content Container -->
   {#if showChat}
     <div 
       class="fixed top-6 right-6 z-40 w-[36rem] h-[calc(100vh-3rem)]"
       in:fly={{ x: 50, duration: 600, delay: 300 }}
     >
       <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 h-full flex flex-col">
-        <div class="p-6 border-b border-gray-200 flex-shrink-0" in:scale={{ duration: 400 }}>
+        
+        <!-- Chat View Header -->
+        <div class="p-6 border-b border-gray-200 flex-shrink-0" class:hidden={viewMode !== 'chat'} in:scale={{ duration: 400 }}>
           <div class="flex items-center justify-between">
             <h2 class="text-2xl font-bold text-gray-900">AI Assistant</h2>
-            <div class="flex items-center space-x-3">
-              <button
-                on:click={toggleExamplesPanel}
-                class="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded {showExamplesPanel ? 'bg-indigo-100 text-indigo-600' : ''}"
-                title="View Chat Examples"
-                aria-label="Toggle chat examples panel"
-              >
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
-                </svg>
-              </button>
-              <div class="flex items-center space-x-2">
-                <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                <span class="text-sm text-gray-600">Online</span>
-              </div>
+            <div class="flex items-center space-x-2">
+              <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+              <span class="text-sm text-gray-600">Online</span>
             </div>
           </div>
           <p class="text-gray-600 mt-2 text-sm">
@@ -592,34 +585,72 @@
           </p>
         </div>
         
-        <div class="flex-1 min-h-0" in:scale={{ duration: 400, delay: 200 }}>
+        <!-- Provider Results Header -->
+        <div class="p-6 border-b border-gray-200 flex-shrink-0" class:hidden={viewMode !== 'providers'} in:fly={{ x: 30, duration: 400 }}>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <button
+                on:click={backToChat}
+                class="text-gray-400 hover:text-gray-600 p-2 hover:bg-gray-100 rounded-full transition-colors"
+                aria-label="Back to chat"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                </svg>
+              </button>
+              <div>
+                <h2 class="text-2xl font-bold text-gray-900">Transportation Providers</h2>
+                <div class="flex items-center space-x-2">
+                  <p class="text-sm text-gray-600">
+                    {providerData?.data?.length || 0} provider{(providerData?.data?.length || 0) !== 1 ? 's' : ''} found
+                  </p>
+                  {#if loadingZones}
+                    <div class="flex items-center space-x-1 text-xs text-blue-600">
+                      <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                      <span>Loading zones...</span>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Chat Content (always rendered, but hidden when in provider view) -->
+        <div class="flex-1 min-h-0 rounded-b-2xl overflow-hidden" class:hidden={viewMode !== 'chat'} in:scale={{ duration: 400, delay: 200 }}>
           <Chat 
             bind:this={chatComponent}
             on:providersFound={handleProvidersFound}
             on:addressFound={handleAddressFound}
           />
         </div>
+        
+        <!-- Provider Results Content -->
+        <div class="flex-1 min-h-0 rounded-b-2xl overflow-hidden" class:hidden={viewMode !== 'providers'} in:fly={{ x: 30, duration: 400, delay: 100 }}>
+          <ProviderResults 
+            {providerData}
+            {loadingZones}
+            {visibleZones}
+            show={viewMode === 'providers'}
+            embedded={true}
+            on:close={handleCloseProviderResults}
+            on:toggleZone={(event) => toggleServiceZone(event.detail.providerId, event.detail.providerName, event.detail.index)}
+          />
+        </div>
+        
       </div>
     </div>
   {/if}
 
   <!-- Floating Help Card -->
-  {#if !showExamplesPanel}
+  {#if viewMode === 'chat'}
     <div 
       class="fixed bottom-6 left-6 z-40 max-w-sm"
       in:fly={{ y: 50, duration: 600, delay: 600 }}
     >
-      <div class="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 p-4">
-        <div class="flex items-start justify-between mb-2">
-          <h3 class="font-semibold text-gray-900">💡 Chat Tips</h3>
-          <button
-            on:click={toggleExamplesPanel}
-            class="text-xs text-indigo-600 hover:text-indigo-800 underline"
-          >
-            View Examples
-          </button>
-        </div>
-        <ul class="text-sm text-gray-600 space-y-1">
+      <div class="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 p-3">
+        <h3 class="font-semibold text-gray-900 text-sm mb-2">💡 Chat Tips</h3>
+        <ul class="text-xs text-gray-600 space-y-1">
           <li>• Describe your transportation needs</li>
           <li>• Mention your location and destination</li>
           <li>• Ask about accessibility requirements</li>
@@ -628,16 +659,6 @@
       </div>
     </div>
   {/if}
-
-  <!-- Provider Results Window -->
-  <ProviderResults 
-    {providerData}
-    {loadingZones}
-    {visibleZones}
-    show={showProviderResults}
-    on:close={handleCloseProviderResults}
-    on:toggleZone={(event) => toggleServiceZone(event.detail.providerId, event.detail.providerName, event.detail.index)}
-  />
 {/if}
 
 <style>

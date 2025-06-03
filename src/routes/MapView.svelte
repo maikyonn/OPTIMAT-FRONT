@@ -9,8 +9,8 @@
   let loading = false;
   let error = null;
   let responseData = null;
-  let originMarker = [37.9020731, -122.0618702]; // Default to Walnut Creek
-  let destinationMarker = [37.9020731, -122.0618702];
+  let originMarker = null;
+  let destinationMarker = null;
   let showForm = false;
   let formPosition = 'form'; // 'form' or 'results'
 
@@ -247,8 +247,12 @@
           {/if}
         {/each}
 
-        <Marker latLng={originMarker} popup="Origin" />
-        <Marker latLng={destinationMarker} popup="Destination" />
+        {#if originMarker}
+          <Marker latLng={originMarker} popup="Origin" />
+        {/if}
+        {#if destinationMarker}
+          <Marker latLng={destinationMarker} popup="Destination" />
+        {/if}
       </Map>
     {/key}
   </div>
