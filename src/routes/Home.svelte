@@ -17,10 +17,6 @@
     push('/chat');
   }
 
-  function navigateToChatExamples() {
-    push('/chat-examples');
-  }
-
   const apiLinks = [
     {
       title: 'Provider Map',
@@ -81,18 +77,18 @@
       </div>
 
       <!-- Main Action Cards -->
-      <div class="grid md:grid-cols-3 gap-4 md:gap-6" in:fly={{ y: 50, duration: 800, delay: 800 }}>
+      <div class="grid md:grid-cols-2 gap-6 md:gap-8" in:fly={{ y: 50, duration: 800, delay: 800 }}>
         <!-- Map Option -->
         <div class="group cursor-pointer" role="button" tabindex="0" on:click={navigateToMap} on:keypress={navigateToMap}>
-          <div class="bg-white rounded-lg shadow-md p-5 md:p-6 transform transition-all duration-300 hover:scale-105 hover:shadow-lg border border-gray-100">
+          <div class="bg-white rounded-xl shadow-lg p-6 md:p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-xl border border-gray-100">
             <div class="text-center">
-              <div class="text-2xl md:text-3xl mb-3 transform transition-transform duration-300 group-hover:scale-110">🗺️</div>
-              <h3 class="text-sm md:text-base font-bold text-gray-900 mb-2">Find with Map</h3>
-              <p class="text-xs text-gray-600 mb-4 hidden sm:block">
-                Use our interactive map to explore providers in your area.
+              <div class="text-4xl md:text-5xl mb-4 transform transition-transform duration-300 group-hover:scale-110">🗺️</div>
+              <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-3">Interactive Map</h3>
+              <p class="text-sm text-gray-600 mb-6">
+                Use our interactive map to visually explore transportation providers and their service areas. Search by location and see real-time results.
               </p>
-              <div class="bg-indigo-600 text-white px-4 py-2 rounded text-xs font-semibold transform transition-all duration-300 group-hover:bg-indigo-700 inline-block">
-                Open Map
+              <div class="bg-indigo-600 text-white px-6 py-3 rounded-lg text-sm font-semibold transform transition-all duration-300 group-hover:bg-indigo-700 inline-block">
+                Open Map Interface
               </div>
             </div>
           </div>
@@ -100,31 +96,15 @@
 
         <!-- Chat Option -->
         <div class="group cursor-pointer" role="button" tabindex="0" on:click={navigateToChat} on:keypress={navigateToChat}>
-          <div class="bg-white rounded-lg shadow-md p-5 md:p-6 transform transition-all duration-300 hover:scale-105 hover:shadow-lg border border-gray-100">
+          <div class="bg-white rounded-xl shadow-lg p-6 md:p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-xl border border-gray-100">
             <div class="text-center">
-              <div class="text-2xl md:text-3xl mb-3 transform transition-transform duration-300 group-hover:scale-110">💬</div>
-              <h3 class="text-sm md:text-base font-bold text-gray-900 mb-2">Chat Assistant</h3>
-              <p class="text-xs text-gray-600 mb-4 hidden sm:block">
-                Get personalized recommendations from our AI assistant.
+              <div class="text-4xl md:text-5xl mb-4 transform transition-transform duration-300 group-hover:scale-110">💬</div>
+              <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-3">AI Chat Assistant</h3>
+              <p class="text-sm text-gray-600 mb-6">
+                Get personalized transportation recommendations from our AI assistant. Includes interactive demo examples to explore different scenarios.
               </p>
-              <div class="bg-green-600 text-white px-4 py-2 rounded text-xs font-semibold transform transition-all duration-300 group-hover:bg-green-700 inline-block">
-                Start Chat
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Chat Examples Option -->
-        <div class="group cursor-pointer" role="button" tabindex="0" on:click={navigateToChatExamples} on:keypress={navigateToChatExamples}>
-          <div class="bg-white rounded-lg shadow-md p-5 md:p-6 transform transition-all duration-300 hover:scale-105 hover:shadow-lg border border-gray-100">
-            <div class="text-center">
-              <div class="text-2xl md:text-3xl mb-3 transform transition-transform duration-300 group-hover:scale-110">🎬</div>
-              <h3 class="text-sm md:text-base font-bold text-gray-900 mb-2">Chat Examples</h3>
-              <p class="text-xs text-gray-600 mb-4 hidden sm:block">
-                Watch automated demos of transportation scenarios.
-              </p>
-              <div class="bg-purple-600 text-white px-4 py-2 rounded text-xs font-semibold transform transition-all duration-300 group-hover:bg-purple-700 inline-block">
-                View Demos
+              <div class="bg-green-600 text-white px-6 py-3 rounded-lg text-sm font-semibold transform transition-all duration-300 group-hover:bg-green-700 inline-block">
+                Start Conversation
               </div>
             </div>
           </div>

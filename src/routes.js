@@ -1,7 +1,6 @@
 import Home from './routes/Home.svelte';
 import MapView from './routes/MapView.svelte';
 import ChatView from './routes/ChatView.svelte';
-import ChatExamples from './routes/ChatExamples.svelte';
 import BetaSignup from './routes/BetaSignup.svelte';
 
 const routes = {
@@ -11,11 +10,8 @@ const routes = {
   // Map interface
   '/map': MapView,
   
-  // Chat interface
+  // Chat interface with integrated examples
   '/chat': ChatView,
-  
-  // Chat examples/demos
-  '/chat-examples': ChatExamples,
   
   // Beta signup page
   '/beta-signup': BetaSignup,

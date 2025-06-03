@@ -17,6 +17,20 @@
     let error = null;
     let serverOnline = false;
     let conversationId = null;
+    
+    // Save as example functionality
+    let savingAsExample = false;
+    let showExampleForm = false;
+    let exampleForm = {
+      title: '',
+      description: '',
+      tags: ''
+    };
+    
+    // Example viewing functionality
+    let isViewingExample = false;
+    let currentExample = null;
+    let isLoadingExample = false;
 
     async function checkServerHealth() {
       try {
@@ -52,12 +66,14 @@
         if (newConversation && newConversation.id) {
           conversationId = newConversation.id;
           console.log("Conversation initialized with ID:", conversationId);
+          return true;
         } else {
           throw new Error("Failed to retrieve conversation ID from server.");
         }
       } catch (e) {
         error = `Error initializing conversation: ${e.message}`;
         console.error(error);
+        return false;
       } finally {
         initializing = false;
       }
@@ -190,6 +206,7 @@
       // Also check for addresses in the messages to update map
       checkForAddresses(responseMessages);
     }
+
     
     function checkForAddresses(responseMessages) {
       // Look for addresses in AI responses and user messages
@@ -217,6 +234,207 @@
         }
       }
     }
+    
+    // Export function to check server status
+    export function getServerStatus() {
+      return serverOnline;
+    }
+    
+    // Example viewing functionality with state reconstruction
+    export async function loadExampleWithStates(conversationStates, example) {
+      try {
+        isViewingExample = true;
+        isLoadingExample = true;
+        currentExample = example;
+        
+        // Reset conversation state and clear all messages
+        conversationId = null;
+        error = null;
+        messages = []; // Clear all messages first
+        
+        // Add header message
+        const headerMessage = {
+          role: 'system',
+          content: `📖 Viewing example: "${example.title || 'Untitled Example'}"\n${example.description || ''}`
+        };
+        messages = [headerMessage];
+        
+        // Don't add the default AI greeting since it's already in the example
+        
+        // Progressive state reconstruction and message loading
+        for (let i = 0; i < conversationStates.length; i++) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Check if we're still viewing this example (user might have navigated away)
+          if (!isViewingExample || currentExample?.id !== example.id) {
+            break;
+          }
+          
+          const stateSnapshot = conversationStates[i];
+          
+          // Add the message
+          messages = [...messages, stateSnapshot.message];
+          
+          // Apply the conversation state
+          await applyConversationState(stateSnapshot.state);
+          
+          scrollToBottom();
+        }
+        
+        isLoadingExample = false;
+        console.log('Loaded example conversation with states:', example);
+      } catch (error) {
+        console.error('Error loading example conversation with states:', error);
+        isLoadingExample = false;
+        throw error;
+      }
+    }
+    
+    async function applyConversationState(state) {
+      try {
+        console.log('Applying conversation state:', state);
+        
+        // Handle providers state
+        if (state.providers) {
+          console.log('Applying provider state:', state.providers);
+          console.log('Dispatching providersFound event...');
+          dispatch('providersFound', state.providers);
+          console.log('Provider event dispatched successfully');
+        } else {
+          console.log('No providers in state');
+        }
+        
+        // Skip map updates during example playback to prevent map resetting
+        if (!isViewingExample) {
+          // Handle map geocoding if needed
+          if (state.mapState?.pendingGeocode) {
+            console.log('Applying map state:', state.mapState.pendingGeocode);
+            // Trigger address geocoding for map updates
+            dispatch('addressFound', { 
+              address: state.mapState.pendingGeocode.origin, 
+              messageRole: 'system' 
+            });
+            
+            // Small delay before destination
+            setTimeout(() => {
+              dispatch('addressFound', { 
+                address: state.mapState.pendingGeocode.destination, 
+                messageRole: 'system' 
+              });
+            }, 500);
+          }
+          
+          // Handle individual addresses
+          if (state.addresses && state.addresses.length > 0) {
+            console.log('Found addresses in state:', state.addresses);
+            // Could emit address events for additional map updates if needed
+          }
+        }
+        
+      } catch (error) {
+        console.error('Error applying conversation state:', error);
+      }
+    }
+    
+    export function startNewConversation() {
+      isViewingExample = false;
+      isLoadingExample = false;
+      currentExample = null;
+      conversationId = null;
+      messages = [{
+        role: 'ai',
+        content: "Hello! I'm here to help you find paratransit providers. How can I assist you today?"
+      }];
+      
+      // Initialize a new conversation
+      if (serverOnline) {
+        initializeNewConversation();
+      }
+    }
+    
+    function scrollToBottom() {
+      // Scroll chat window to bottom
+      setTimeout(() => {
+        const chatWindow = document.querySelector('.chat-messages');
+        if (chatWindow) {
+          chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+      }, 100);
+    }
+
+    function openExampleForm() {
+      if (!conversationId) {
+        error = "No conversation to save. Please start chatting first.";
+        return;
+      }
+      showExampleForm = true;
+      exampleForm = {
+        title: '',
+        description: '',
+        tags: ''
+      };
+    }
+
+    function closeExampleForm() {
+      showExampleForm = false;
+      exampleForm = {
+        title: '',
+        description: '',
+        tags: ''
+      };
+    }
+
+    async function saveAsExample() {
+      if (!conversationId || savingAsExample) {
+        return;
+      }
+
+      savingAsExample = true;
+      error = null;
+
+      try {
+        const tags = exampleForm.tags 
+          ? exampleForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
+          : [];
+
+        const response = await fetch(`${BACKEND_URL}/api-chat/conversations/${conversationId}/add-to-examples`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            conversation_id: conversationId,
+            title: exampleForm.title || null,
+            description: exampleForm.description || null,
+            tags: tags,
+            is_active: true
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: "Failed to save example." }));
+          throw new Error(errorData.detail || `Server error: ${response.status}`);
+        }
+
+        const exampleData = await response.json();
+        console.log('Chat example saved:', exampleData);
+        
+        // Show success message
+        const successMessage = {
+          role: 'system',
+          content: `✅ This conversation has been saved as an example${exampleForm.title ? ': "' + exampleForm.title + '"' : ''}!`
+        };
+        messages = [...messages, successMessage];
+        
+        closeExampleForm();
+        
+      } catch (e) {
+        error = `Error saving example: ${e.message}`;
+        console.error('Error saving chat example:', e);
+      } finally {
+        savingAsExample = false;
+      }
+    }
 
 </script> 
   <div class="flex flex-col h-full">
@@ -234,9 +452,41 @@
         </div>
       </div>
     {/if}
+
+    <!-- Example viewing banner or Save as Example Button -->
+    {#if isViewingExample}
+      <div class="px-4 pt-2 pb-0 flex justify-between items-center bg-blue-50 mx-4 rounded-lg p-2">
+        <div class="flex items-center space-x-2">
+          <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+          </svg>
+          <span class="text-sm text-blue-700 font-medium">Viewing Example</span>
+        </div>
+        <button
+          on:click={startNewConversation}
+          class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+        >
+          Start New Chat
+        </button>
+      </div>
+    {:else if conversationId && messages.length > 1 && serverOnline}
+      <div class="px-4 pt-2 pb-0 flex justify-end">
+        <button
+          on:click={openExampleForm}
+          disabled={savingAsExample}
+          class="text-sm px-3 py-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-md transition-all duration-200 flex items-center space-x-1"
+          title="Save this conversation as an example for others"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/>
+          </svg>
+          <span>Save as Example</span>
+        </button>
+      </div>
+    {/if}
   
     <!-- Chat messages -->
-    <div class="flex-1 overflow-y-auto px-4 pt-4 pb-0 space-y-4">
+    <div class="flex-1 overflow-y-auto px-4 pt-4 pb-0 space-y-4 chat-messages">
       {#each messages.filter(m => (m.role === 'ai' || m.role === 'human' || m.role === 'system') && typeof m.content === 'string' && m.content.trim() !== '') as message, index}
         <div class="flex flex-col {message.role === 'human' ? 'items-end' : 'items-start'}">
           <div class="max-w-[80%] rounded-lg p-3 {
@@ -270,7 +520,16 @@
   
       {#if loading}
         <div class="flex justify-center">
-          <div class="animate-pulse text-gray-500">Thinking...</div>
+          <div class="animate-pulse text-gray-500">
+            Thinking...
+          </div>
+        </div>
+      {:else if isLoadingExample}
+        <div class="flex justify-center">
+          <div class="animate-pulse text-gray-500 flex items-center space-x-2">
+            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+            <span>Loading example conversation...</span>
+          </div>
         </div>
       {/if}
   
@@ -280,40 +539,147 @@
         </div>
       {/if}
     </div>
-    <!-- Input form -->
-    <form 
-      on:submit|preventDefault={handleSubmit}
-      class="border-t p-4 bg-white flex-shrink-0"
-    >
-      <div class="space-y-3">
-        <textarea
-          bind:value={userInput}
-          placeholder={serverOnline ? "Type your message here... (Press Ctrl+Enter to send)" : "Chat is currently unavailable"}
-          class="w-full h-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500 resize-none"   
-          disabled={loading || !serverOnline}
-          on:keydown={(e) => {
-            if (e.ctrlKey && e.key === 'Enter') {
-              e.preventDefault();
-              handleSubmit();
-            }
-          }}
-        ></textarea>
-        <div class="flex justify-end">
-          <button
-            type="submit"
-            disabled={loading || !serverOnline || !userInput.trim()}
-            class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-          >
-            {#if loading}
-              <div class="flex items-center space-x-2">
-                <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                <span>Sending...</span>
-              </div>
-            {:else}
-              Send Message
-            {/if}
-          </button>
+    <!-- Input form (hidden during example viewing) -->
+    {#if !isViewingExample}
+      <form 
+        on:submit|preventDefault={handleSubmit}
+        class="border-t p-4 bg-white flex-shrink-0"
+      >
+        <div class="space-y-3">
+          <textarea
+            bind:value={userInput}
+            placeholder={serverOnline ? "Type your message here... (Press Ctrl+Enter to send)" : "Chat is currently unavailable"}
+            class="w-full h-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500 resize-none"   
+            disabled={loading || !serverOnline}
+            on:keydown={(e) => {
+              if (e.ctrlKey && e.key === 'Enter') {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+          ></textarea>
+          <div class="flex justify-end">
+            <button
+              type="submit"
+              disabled={loading || !serverOnline || !userInput.trim()}
+              class="px-6 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+            >
+              {#if loading}
+                <div class="flex items-center space-x-2">
+                  <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <span>Sending...</span>
+                </div>
+              {:else}
+                Send Message
+              {/if}
+            </button>
+          </div>
+        </div>
+      </form>
+    {/if}
+
+    <!-- Save as Example Modal -->
+    {#if showExampleForm}
+      <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+      <div 
+        class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
+        on:click={closeExampleForm}
+        on:keydown={(e) => {
+          if (e.key === 'Escape') {
+            closeExampleForm();
+          }
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+      >
+        <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+        <div 
+          class="bg-white rounded-lg p-6 w-full max-w-md mx-4" 
+          on:click|stopPropagation
+          on:keydown|stopPropagation
+          role="document"
+        >
+          <div class="flex justify-between items-center mb-4">
+            <h3 id="modal-title" class="text-lg font-semibold text-gray-900">Save as Example</h3>
+            <button 
+              on:click={closeExampleForm} 
+              class="text-gray-400 hover:text-gray-600"
+              aria-label="Close modal"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          
+          <form on:submit|preventDefault={saveAsExample} class="space-y-4">
+            <div>
+              <label for="example-title" class="block text-sm font-medium text-gray-700 mb-1">
+                Title (optional)
+              </label>
+              <input
+                id="example-title"
+                type="text"
+                bind:value={exampleForm.title}
+                placeholder="e.g., Booking a ride to Target"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+            
+            <div>
+              <label for="example-description" class="block text-sm font-medium text-gray-700 mb-1">
+                Description (optional)
+              </label>
+              <textarea
+                id="example-description"
+                bind:value={exampleForm.description}
+                placeholder="What does this conversation demonstrate?"
+                rows="3"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+              ></textarea>
+            </div>
+            
+            <div>
+              <label for="example-tags" class="block text-sm font-medium text-gray-700 mb-1">
+                Tags (optional)
+              </label>
+              <input
+                id="example-tags"
+                type="text"
+                bind:value={exampleForm.tags}
+                placeholder="e.g., booking, ride, accessibility (comma-separated)"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+              <p class="text-xs text-gray-500 mt-1">Separate multiple tags with commas</p>
+            </div>
+            
+            <div class="flex justify-end space-x-3 pt-4">
+              <button
+                type="button"
+                on:click={closeExampleForm}
+                class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingAsExample}
+                class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+              >
+                {#if savingAsExample}
+                  <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <span>Saving...</span>
+                {:else}
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                  </svg>
+                  <span>Save Example</span>
+                {/if}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
-    </form>
+    {/if}
   </div>
