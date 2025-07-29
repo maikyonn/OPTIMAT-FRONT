@@ -475,6 +475,15 @@
             if (fullResponse.attachments && fullResponse.attachments.length > 0) {
               // Set attachments for the new message
               messageAttachments.set(latestMessageId, fullResponse.attachments);
+              
+              // Auto-click "View Details" for provider search attachments
+              const hasProviderAttachment = fullResponse.attachments.some(att => att.type === 'provider_search');
+              if (hasProviderAttachment) {
+                // Use setTimeout to ensure the DOM is updated before triggering the click
+                setTimeout(() => {
+                  handleMessageClick(latestMessageId);
+                }, 100);
+              }
             } else {
               // Ensure no attachments are associated with this message
               messageAttachments.delete(latestMessageId);

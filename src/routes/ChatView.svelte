@@ -4,10 +4,12 @@
   import { fade, fly, scale } from 'svelte/transition';
   import Chat from '../components/Chat.svelte';
   import ProviderResults from '../components/ProviderResults.svelte';
-  import { Map, TileLayer, Marker, GeoJSON } from 'sveaflet';
+  import ProviderListPanel from '../components/ProviderListPanel.svelte';
+  import { Map, TileLayer, Marker, GeoJSON, Polyline } from 'sveaflet';
   import { BACKEND_URL } from '../config';
   import { pingManager, PingTypes, pings, mapFocus } from '../lib/pingManager.js';
   import { serviceZoneManager, visibleServiceZones } from '../lib/serviceZoneManager.js';
+  import { derived } from 'svelte/store';
 
   let mounted = false;
   let showChat = false;
@@ -15,6 +17,26 @@
   let providerData = null;
   let viewMode = 'chat'; // 'chat' or 'providers'
   let foundAddresses = [];
+  let highlightedProviders = new Set(); // Provider IDs to highlight in the list
+  
+  // Derived stores for origin/destination pings and connecting line
+  const originPing = derived(pings, $pings => 
+    $pings.find(p => p.type === PingTypes.ORIGIN && p.visible)
+  );
+  
+  const destinationPing = derived(pings, $pings => 
+    $pings.find(p => p.type === PingTypes.DESTINATION && p.visible)
+  );
+  
+  const connectionLine = derived([originPing, destinationPing], ([$origin, $destination]) => {
+    if ($origin && $destination) {
+      return {
+        coordinates: [$origin.coordinates, $destination.coordinates],
+        show: true
+      };
+    }
+    return { coordinates: [], show: false };
+  });
   
   // Chat examples functionality
   let showExamplesPanel = false;
@@ -29,14 +51,63 @@
   let mapZoom = 12;
   let mapKey = 'initial'; // Force map to re-render when this changes
   
-  // Reactive statements for ping system integration
-  $: if ($mapFocus.shouldFocus) {
-    mapCenter = $mapFocus.center;
-    mapZoom = $mapFocus.zoom;
-    mapKey = Date.now().toString();
-    // Reset the focus trigger
-    pingManager.resetFocus();
-  }
+  // Map style configuration
+  const mapStyles = [
+    {
+      id: 'light',
+      name: 'Light',
+      description: 'Clean, minimal style',
+      url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    },
+    {
+      id: 'standard',
+      name: 'Standard',
+      description: 'OpenStreetMap default',
+      url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    },
+    {
+      id: 'dark',
+      name: 'Dark',
+      description: 'Dark theme',
+      url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    },
+    {
+      id: 'satellite',
+      name: 'Satellite',
+      description: 'Satellite imagery',
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+    },
+    {
+      id: 'terrain',
+      name: 'Terrain',
+      description: 'Topographic view',
+      url: 'https://stamen-tiles-{s}.a.ssl.fastly.net/terrain/{z}/{x}/{y}.png',
+      attribution: 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a> &mdash; Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    },
+    {
+      id: 'voyager',
+      name: 'Voyager',
+      description: 'Balanced detail',
+      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    }
+  ];
+  
+  let currentMapStyle = mapStyles[5]; // Default to voyager style
+  let showStyleSwitcher = false;
+  
+  // Reactive statements for ping system integration - DISABLED to prevent map movement
+  // $: if ($mapFocus.shouldFocus) {
+  //   mapCenter = $mapFocus.center;
+  //   mapZoom = $mapFocus.zoom;
+  //   mapKey = Date.now().toString();
+  //   // Reset the focus trigger
+  //   pingManager.resetFocus();
+  // }
   
   onMount(async () => {
     mounted = true;
@@ -44,11 +115,33 @@
     if (serverOnline) {
       await loadChatExamples();
     }
+    // Load saved map style from localStorage
+    const savedStyle = localStorage.getItem('optimat-map-style');
+    if (savedStyle) {
+      const style = mapStyles.find(s => s.id === savedStyle);
+      if (style) {
+        currentMapStyle = style;
+      }
+    }
     // Show chat after a brief delay for animation
     setTimeout(() => {
       showChat = true;
     }, 500);
   });
+  
+  function changeMapStyle(style) {
+    currentMapStyle = style;
+    showStyleSwitcher = false;
+    mapKey = Date.now().toString(); // Force map re-render
+    // Save preference to localStorage
+    localStorage.setItem('optimat-map-style', style.id);
+  }
+  
+  function handleClickOutside(event) {
+    if (showStyleSwitcher && !event.target.closest('.style-switcher')) {
+      showStyleSwitcher = false;
+    }
+  }
   
   async function checkServerHealth() {
     try {
@@ -130,7 +223,7 @@
             address: address,
             placeName: placeName 
           }
-        }, true); // Focus on this ping
+        }, false); // Don't focus on this ping
         
         // Switch to chat view to show the map prominently
         if (viewMode === 'providers') {
@@ -151,7 +244,7 @@
               address: address,
               placeName: placeName 
             }
-          }, true);
+          }, false);
         } else if (foundAddresses.length === 2) {
           // Second address becomes destination
           pingManager.addPing({
@@ -166,8 +259,8 @@
             }
           }, false); // Don't focus yet
           
-          // Focus on all pings to show both origin and destination
-          pingManager.focusOnAllPings();
+          // Don't focus on all pings to avoid moving the map
+          // pingManager.focusOnAllPings();
         } else {
           // For subsequent addresses, update the destination
           pingManager.removePingsByType(PingTypes.DESTINATION);
@@ -183,8 +276,8 @@
             }
           }, false);
           
-          // Focus on all pings
-          pingManager.focusOnAllPings();
+          // Don't focus on all pings to avoid moving the map
+          // pingManager.focusOnAllPings();
         }
       }
     }
@@ -194,6 +287,12 @@
     providerData = event.detail;
     showProviderResults = true;
     viewMode = 'providers'; // Switch to provider view
+    
+    // Update highlighted providers
+    if (providerData && providerData.data && Array.isArray(providerData.data)) {
+      highlightedProviders = new Set(providerData.data.map(p => p.provider_id));
+      console.log(`Highlighting ${highlightedProviders.size} providers`);
+    }
     
     // Pause example playback if currently playing
     if (chatComponent) {
@@ -253,9 +352,9 @@
       });
     }
     
-    // Add all pings and focus on them
+    // Add all pings without focusing to avoid moving the map
     if (pingsToAdd.length > 0) {
-      pingManager.addPings(pingsToAdd, true);
+      pingManager.addPings(pingsToAdd, false);
     }
   }
   
@@ -274,6 +373,8 @@
   function handleCloseProviderResults() {
     showProviderResults = false;
     viewMode = 'chat'; // Switch back to chat view
+    // Clear highlights when closing provider results
+    highlightedProviders = new Set();
     // Clear service zones when closing
     serviceZoneManager.clearAllServiceZones();
     
@@ -290,6 +391,8 @@
   function backToChat() {
     viewMode = 'chat';
     showProviderResults = false;
+    // Clear highlights when going back to chat
+    highlightedProviders = new Set();
     serviceZoneManager.clearAllServiceZones();
     
     // Clear provider-related pings but keep any address pings
@@ -305,6 +408,8 @@
   function handleNewConversationStarted() {
     // Clear all pings when starting a new conversation
     pingManager.clearAllPings();
+    // Clear highlights
+    highlightedProviders = new Set();
     // Clear service zones
     serviceZoneManager.clearAllServiceZones();
     // Reset provider results state
@@ -420,6 +525,8 @@
   }
 </script>
 
+<svelte:window on:click={handleClickOutside} />
+
 {#if mounted}
   <!-- Back Button -->
   <button
@@ -433,6 +540,52 @@
     </svg>
   </button>
 
+  <!-- Map Style Switcher -->
+  <div class="fixed top-6 left-20 z-50 style-switcher" in:fly={{ x: -50, duration: 600, delay: 300 }}>
+    <div class="relative">
+      <button
+        class="bg-white/90 backdrop-blur-sm hover:bg-white text-gray-700 px-4 py-3 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-200 flex items-center gap-2"
+        on:click={() => showStyleSwitcher = !showStyleSwitcher}
+        aria-label="Change map style"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+        </svg>
+        <span class="text-sm font-medium">{currentMapStyle.name}</span>
+        <svg class="w-4 h-4 transition-transform duration-200 {showStyleSwitcher ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+
+      {#if showStyleSwitcher}
+        <div class="absolute top-full left-0 mt-2 bg-white/95 backdrop-blur-sm rounded-xl shadow-xl border border-gray-200 py-2 min-w-48"
+             in:fly={{ y: -10, duration: 200 }}>
+          {#each mapStyles as style}
+            <button
+              class="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors duration-200 flex items-center justify-between group {currentMapStyle.id === style.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'}"
+              on:click={() => changeMapStyle(style)}
+            >
+              <div>
+                <div class="font-medium text-sm">{style.name}</div>
+                <div class="text-xs text-gray-500 group-hover:text-gray-600">{style.description}</div>
+              </div>
+              {#if currentMapStyle.id === style.id}
+                <svg class="w-4 h-4 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                </svg>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <!-- Provider List Panel -->
+  {#if showChat}
+    <ProviderListPanel {highlightedProviders} />
+  {/if}
+
   <!-- Fullscreen Map Background -->
   <div class="fixed inset-0 z-0" in:fade={{ duration: 800 }}>
     {#key mapKey}
@@ -442,7 +595,11 @@
           zoom: mapZoom
         }}
       >
-          <TileLayer url={'https://tile.openstreetmap.org/{z}/{x}/{y}.png'} />
+          <TileLayer url={currentMapStyle.url} 
+                     options={{
+                       attribution: currentMapStyle.attribution,
+                       maxZoom: 19
+                     }} />
           
           <!-- Service Zones from Service Zone Manager -->
           {#each $visibleServiceZones as zone (zone.id)}
@@ -491,11 +648,38 @@
             {/if}
           {/each}
           
-          <!-- Ping-based Markers -->
+          <!-- Connection Line between Origin and Destination -->
+          {#if $connectionLine.show}
+            <Polyline
+              latLngs={$connectionLine.coordinates}
+              options={{
+                color: '#6366f1',
+                weight: 3,
+                opacity: 0.8,
+                dashArray: '10, 5'
+              }}
+            />
+          {/if}
+          
+          <!-- Ping-based Markers with Animation and Labels -->
           {#each $pings.filter(ping => ping.visible) as ping (ping.id)}
             <Marker 
               latLng={ping.coordinates}
-              popup={ping.description || ping.label}
+              popup={`
+                <div class="ping-popup">
+                  <div class="ping-popup-header">
+                    <strong>${ping.type === PingTypes.ORIGIN ? '🚀 Origin' : 
+                             ping.type === PingTypes.DESTINATION ? '🎯 Destination' : 
+                             `${ping.config.icon} ${ping.label}`}</strong>
+                  </div>
+                  <div class="ping-popup-content">
+                    ${ping.description || ping.label}
+                  </div>
+                </div>
+              `}
+              options={{
+                className: `ping-marker-${ping.type} animated-marker`
+              }}
             />
           {/each}
       </Map>
@@ -505,7 +689,7 @@
   <!-- Examples Panel - Always Visible -->
   {#if showChat && viewMode === 'chat'}
     <div 
-      class="fixed bottom-40 left-6 z-40 max-w-sm max-h-80"
+      class="fixed bottom-40 left-6 z-40 max-w-sm max-h-40"
       in:fly={{ y: 50, duration: 600, delay: 400 }}
     >
       <div class="bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 flex flex-col">
@@ -522,7 +706,7 @@
         </div>
         
         <!-- Examples List -->
-        <div class="overflow-y-auto p-2 space-y-1 max-h-64">
+        <div class="overflow-y-auto p-2 space-y-1 max-h-32">
           {#if loadingExamples}
             <div class="flex items-center justify-center py-4">
               <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
@@ -644,23 +828,6 @@
     </div>
   {/if}
 
-  <!-- Floating Help Card -->
-  {#if viewMode === 'chat'}
-    <div 
-      class="fixed bottom-6 left-6 z-40 max-w-sm"
-      in:fly={{ y: 50, duration: 600, delay: 600 }}
-    >
-      <div class="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200 p-3">
-        <h3 class="font-semibold text-gray-900 text-sm mb-2">💡 Chat Tips</h3>
-        <ul class="text-xs text-gray-600 space-y-1">
-          <li>• Describe your transportation needs</li>
-          <li>• Mention your location and destination</li>
-          <li>• Ask about accessibility requirements</li>
-          <li>• Get personalized recommendations</li>
-        </ul>
-      </div>
-    </div>
-  {/if}
 {/if}
 
 <style>
@@ -707,5 +874,101 @@
     font-size: 12px;
     color: #6b7280;
     margin-bottom: 2px;
+  }
+  
+  /* Animated Marker Styles */
+  :global(.animated-marker) {
+    animation: dropIn 0.6s ease-out;
+    transform-origin: bottom center;
+  }
+  
+  :global(.ping-marker-origin .leaflet-marker-icon) {
+    background-color: #10B981 !important;
+    border: 3px solid white !important;
+    border-radius: 50% !important;
+    width: 28px !important;
+    height: 28px !important;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4) !important;
+  }
+  
+  :global(.ping-marker-destination .leaflet-marker-icon) {
+    background-color: #EF4444 !important;
+    border: 3px solid white !important;
+    border-radius: 50% !important;
+    width: 28px !important;
+    height: 28px !important;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4) !important;
+  }
+  
+  :global(.ping-marker-search_result .leaflet-marker-icon) {
+    background-color: #8B5CF6 !important;
+    border: 3px solid white !important;
+    border-radius: 50% !important;
+    width: 24px !important;
+    height: 24px !important;
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4) !important;
+  }
+  
+  /* Popup Styles */
+  :global(.ping-popup) {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 200px;
+  }
+  
+  :global(.ping-popup-header) {
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 14px;
+  }
+  
+  :global(.ping-popup-content) {
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.4;
+  }
+  
+  /* Drop-in Animation */
+  :global {
+    @keyframes dropIn {
+      0% {
+        transform: translateY(-40px) scale(0.3);
+        opacity: 0;
+      }
+      60% {
+        transform: translateY(5px) scale(1.1);
+        opacity: 0.9;
+      }
+      100% {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+      }
+    }
+    
+    @keyframes pulse {
+      0% {
+        transform: scale(0.8);
+        opacity: 1;
+      }
+      100% {
+        transform: scale(1.4);
+        opacity: 0;
+      }
+    }
+  }
+  
+  /* Pulse effect for origin/destination markers */
+  :global(.ping-marker-origin .leaflet-marker-icon::before),
+  :global(.ping-marker-destination .leaflet-marker-icon::before) {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: -6px;
+    right: -6px;
+    bottom: -6px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    opacity: 0;
+    animation: pulse 2s infinite;
   }
 </style>
