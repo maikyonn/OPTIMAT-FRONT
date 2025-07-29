@@ -1,11 +1,28 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { serviceZoneManager } from '../lib/serviceZoneManager.js';
   
+  /**
+   * @typedef {Object} PublicTransitData
+   * @property {string} journey_description
+   */
+  
+  /**
+   * @typedef {Object} ProviderData
+   * @property {Array<any>} data
+   * @property {string} source_address
+   * @property {string} destination_address
+   * @property {PublicTransitData} [public_transit]
+   */
+  
+  /** @type {ProviderData|null} */
   export let providerData = null;
   export let show = false;
-  export let loadingZones = false;
-  export let visibleZones = new Set();
   export let embedded = false; // New prop for embedded mode
+  
+  // Local service zone state management
+  let visibleZones = new Set();
+  let loadingZones = false;
   
   const dispatch = createEventDispatcher();
   
@@ -13,13 +30,65 @@
     dispatch('close');
   }
   
-  function toggleServiceZone(providerId, providerName, index) {
-    dispatch('toggleZone', { providerId, providerName, index });
+  // Service zone state management
+  let loadingProviderZones = new Set();
+
+  async function toggleServiceZone(providerId, providerName, provider, index) {
+    const isVisible = visibleZones.has(providerId);
+    
+    if (isVisible) {
+      // Hide the zone
+      serviceZoneManager.removeServiceZonesByProvider(providerId);
+      visibleZones.delete(providerId);
+      visibleZones = new Set(visibleZones); // Trigger reactivity
+    } else {
+      // Show the zone
+      loadingProviderZones.add(providerId);
+      loadingProviderZones = new Set(loadingProviderZones); // Trigger reactivity
+      
+      try {
+        // Use the service zone data if available from provider
+        if (provider.service_zone) {
+          const zoneData = {
+            type: 'provider',
+            geoJson: typeof provider.service_zone === 'string' 
+              ? JSON.parse(provider.service_zone) 
+              : provider.service_zone,
+            label: providerName,
+            description: `${providerName} service area`,
+            metadata: {
+              providerId: providerId,
+              provider: provider
+            }
+          };
+          
+          const zoneId = serviceZoneManager.addServiceZone(zoneData, false);
+          if (zoneId) {
+            visibleZones.add(providerId);
+            // Focus on this specific provider's zone
+            serviceZoneManager.focusOnServiceZone(zoneId);
+          }
+        } else {
+          // Fallback: dispatch event to parent for API call
+          dispatch('toggleZone', { providerId, providerName, index });
+        }
+      } catch (error) {
+        console.error('Error loading service zone:', error);
+      } finally {
+        loadingProviderZones.delete(providerId);
+        loadingProviderZones = new Set(loadingProviderZones); // Trigger reactivity
+      }
+    }
+    
+    visibleZones = new Set(visibleZones); // Trigger reactivity
+  }
+
+  function isProviderZoneLoading(providerId) {
+    return loadingProviderZones.has(providerId);
   }
   
   function formatServiceHours(hoursData) {
     try {
-      console.log('Raw service hours data:', hoursData);
       
       if (!hoursData || hoursData === 'null' || hoursData === '' || hoursData === 'undefined') {
         return 'Hours not available';
@@ -32,10 +101,8 @@
       } else {
         hours = hoursData;
       }
-      console.log('Processed service hours:', hours);
       
       if (!hours || !hours.hours || !Array.isArray(hours.hours) || hours.hours.length === 0) {
-        console.log('Invalid hours structure:', hours);
         return 'Hours not available';
       }
 
@@ -53,7 +120,6 @@
       
       for (const schedule of hours.hours) {
         if (!schedule.day || !schedule.start || !schedule.end) {
-          console.log('Skipping incomplete schedule:', schedule);
           continue;
         }
         
@@ -72,7 +138,6 @@
 
       return formattedSchedules.length > 0 ? formattedSchedules.join('; ') : 'Hours not available';
     } catch (error) {
-      console.error('Error parsing service hours:', error, 'Input:', hoursData);
       return 'Hours not available';
     }
   }
@@ -121,7 +186,6 @@
 
 {#if show && providerData}
   <!-- Debug logging -->
-  {console.log('ProviderResults rendering:', { show, providerData, embedded })}
   <div class="{embedded ? 'h-full flex flex-col' : 'fixed top-6 left-6 z-40 w-96 max-h-[calc(100vh-3rem)] bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-200 overflow-hidden'}">
     
     {#if !embedded}
@@ -169,6 +233,23 @@
               <div class="space-y-1 text-gray-600">
                 <p><span class="font-medium">From:</span> {providerData.source_address}</p>
                 <p><span class="font-medium">To:</span> {providerData.destination_address}</p>
+              </div>
+            </div>
+          {/if}
+          
+          <!-- Public Transit Option -->
+          {#if providerData.public_transit && providerData.public_transit.journey_description}
+            <div class="bg-blue-50 rounded-lg p-4 text-sm border border-blue-200">
+              <div class="flex items-start space-x-3">
+                <div class="flex-shrink-0">
+                  <svg class="w-5 h-5 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                  </svg>
+                </div>
+                <div class="flex-1">
+                  <h4 class="font-medium text-gray-900 mb-2">Public Transit Option</h4>
+                  <p class="text-gray-700">{providerData.public_transit.journey_description}</p>
+                </div>
               </div>
             </div>
           {/if}
@@ -242,10 +323,10 @@
                             ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }"
-                        on:click={() => toggleServiceZone(provider.provider_id, provider.provider_name, index)}
-                        disabled={loadingZones}
+                        on:click={() => toggleServiceZone(provider.provider_id, provider.provider_name, provider, index)}
+                        disabled={loadingZones || isProviderZoneLoading(provider.provider_id)}
                       >
-                        {#if loadingZones}
+                        {#if loadingZones || isProviderZoneLoading(provider.provider_id)}
                           <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-current"></div>
                           <span>Loading...</span>
                         {:else if visibleZones.has(provider.provider_id)}

@@ -6,14 +6,14 @@
   import ProviderResults from '../components/ProviderResults.svelte';
   import { Map, TileLayer, Marker, GeoJSON } from 'sveaflet';
   import { BACKEND_URL } from '../config';
+  import { pingManager, PingTypes, pings, mapFocus } from '../lib/pingManager.js';
+  import { serviceZoneManager, visibleServiceZones } from '../lib/serviceZoneManager.js';
 
   let mounted = false;
   let showChat = false;
   let showProviderResults = false;
   let providerData = null;
   let viewMode = 'chat'; // 'chat' or 'providers'
-  let originMarker = null; // No default marker
-  let destinationMarker = null; // No default marker
   let foundAddresses = [];
   
   // Chat examples functionality
@@ -28,9 +28,15 @@
   let mapCenter = [37.9020731, -122.0618702];
   let mapZoom = 12;
   let mapKey = 'initial'; // Force map to re-render when this changes
-  let serviceZones = [];
-  let loadingZones = false;
-  let visibleZones = new Set(); // Track which provider zones are visible
+  
+  // Reactive statements for ping system integration
+  $: if ($mapFocus.shouldFocus) {
+    mapCenter = $mapFocus.center;
+    mapZoom = $mapFocus.zoom;
+    mapKey = Date.now().toString();
+    // Reset the focus trigger
+    pingManager.resetFocus();
+  }
   
   onMount(async () => {
     mounted = true;
@@ -69,9 +75,7 @@
       }
       
       chatExamples = await response.json();
-      console.log('Loaded chat examples:', chatExamples);
     } catch (error) {
-      console.error('Error loading chat examples:', error);
       examplesError = error.message;
       chatExamples = [];
     } finally {
@@ -96,74 +100,124 @@
         return [latitude, longitude];
       }
 
-      console.error('Geocoding failed:', data.message);
       return null;
 
     } catch (err) {
-      console.error('Geocoding error:', err);
       return null;
     }
   }
 
   async function handleAddressFound(event) {
-    const { address, messageRole } = event.detail;
-    console.log('Address found:', address, 'from', messageRole);
+    const { address, messageRole, placeName } = event.detail;
     
     const coordinates = await geocodeAddress(address);
     if (coordinates) {
-      foundAddresses.push({ address, coordinates, role: messageRole });
+      foundAddresses.push({ address, coordinates, role: messageRole, placeName });
       
-      // Update markers based on context or order
-      if (foundAddresses.length === 1) {
-        originMarker = coordinates;
-        mapCenter = coordinates;
-        mapZoom = 14;
-        mapKey = Date.now().toString();
-      } else if (foundAddresses.length === 2) {
-        destinationMarker = coordinates;
-        // Center map between both points
-        const lat = (originMarker[0] + destinationMarker[0]) / 2;
-        const lng = (originMarker[1] + destinationMarker[1]) / 2;
-        mapCenter = [lat, lng];
-        mapZoom = 12;
-        mapKey = Date.now().toString();
+      // Handle address attachment clicks differently - always center on the clicked address
+      if (messageRole === 'attachment_click') {
+        // For address attachment clicks, create a ping and center the map
+        const label = placeName || address;
+        const description = placeName ? `${placeName}\n${address}` : address;
+        
+        pingManager.addPing({
+          type: PingTypes.SEARCH_RESULT,
+          coordinates: coordinates,
+          label: label,
+          description: description,
+          metadata: { 
+            source: 'address_attachment',
+            address: address,
+            placeName: placeName 
+          }
+        }, true); // Focus on this ping
+        
+        // Switch to chat view to show the map prominently
+        if (viewMode === 'providers') {
+          viewMode = 'chat';
+          showProviderResults = false;
+        }
       } else {
-        // For subsequent addresses, update the most recent marker
-        destinationMarker = coordinates;
-        mapKey = Date.now().toString();
+        // Original logic for system/regular address updates
+        if (foundAddresses.length === 1) {
+          // First address becomes origin
+          pingManager.addPing({
+            type: PingTypes.ORIGIN,
+            coordinates: coordinates,
+            label: placeName || "Origin",
+            description: address,
+            metadata: { 
+              source: 'system_geocode',
+              address: address,
+              placeName: placeName 
+            }
+          }, true);
+        } else if (foundAddresses.length === 2) {
+          // Second address becomes destination
+          pingManager.addPing({
+            type: PingTypes.DESTINATION,
+            coordinates: coordinates,
+            label: placeName || "Destination", 
+            description: address,
+            metadata: { 
+              source: 'system_geocode',
+              address: address,
+              placeName: placeName 
+            }
+          }, false); // Don't focus yet
+          
+          // Focus on all pings to show both origin and destination
+          pingManager.focusOnAllPings();
+        } else {
+          // For subsequent addresses, update the destination
+          pingManager.removePingsByType(PingTypes.DESTINATION);
+          pingManager.addPing({
+            type: PingTypes.DESTINATION,
+            coordinates: coordinates,
+            label: placeName || "Destination",
+            description: address,
+            metadata: { 
+              source: 'system_geocode',
+              address: address,
+              placeName: placeName 
+            }
+          }, false);
+          
+          // Focus on all pings
+          pingManager.focusOnAllPings();
+        }
       }
     }
   }
 
   async function handleProvidersFound(event) {
-    console.log('handleProvidersFound called with:', event.detail);
     providerData = event.detail;
     showProviderResults = true;
     viewMode = 'providers'; // Switch to provider view
-    console.log('Providers found, switching to provider view. providerData:', providerData);
-    console.log('viewMode:', viewMode, 'showProviderResults:', showProviderResults);
     
     // Pause example playback if currently playing
     if (chatComponent) {
       chatComponent.pauseExamplePlayback();
     }
     
-    // Reset visible zones when new providers are found
-    visibleZones = new Set();
-    serviceZones = [];
+    // Clear existing service zones when new providers are found
+    serviceZoneManager.clearAllServiceZones();
     
-    // If we have trip details but haven't set markers properly, use the trip addresses
+    // Clear old search result pings and create new ones for provider search
+    pingManager.removePingsByType(PingTypes.SEARCH_RESULT);
+    pingManager.removePingsByType(PingTypes.ORIGIN);
+    pingManager.removePingsByType(PingTypes.DESTINATION);
+    
+    // Create pings for origin and destination if we have trip details
     if (providerData.source_address && providerData.destination_address) {
-      await updateMarkersFromTripDetails();
+      await createProviderSearchPings();
     }
   }
   
-  async function updateMarkersFromTripDetails() {
+  async function createProviderSearchPings() {
     if (!providerData || !providerData.source_address || !providerData.destination_address) {
       return;
     }
-    
-    console.log('Updating markers from trip details:', providerData.source_address, '->', providerData.destination_address);
     
     // Geocode both addresses
     const [originCoords, destCoords] = await Promise.all([
@@ -171,38 +225,38 @@
       geocodeAddress(providerData.destination_address)
     ]);
     
-    if (originCoords && destCoords) {
-      originMarker = originCoords;
-      destinationMarker = destCoords;
-      
-      // Calculate center point between the two addresses
-      const centerLat = (originCoords[0] + destCoords[0]) / 2;
-      const centerLng = (originCoords[1] + destCoords[1]) / 2;
-      mapCenter = [centerLat, centerLng];
-      
-      // Calculate zoom level based on distance (more zoomed in)
-      const distance = calculateDistance(originCoords, destCoords);
-      if (distance > 20) mapZoom = 12;
-      else if (distance > 10) mapZoom = 13;
-      else if (distance > 5) mapZoom = 14;
-      else if (distance > 2) mapZoom = 15;
-      else mapZoom = 16;
-      
-      console.log('Updated map center:', mapCenter, 'zoom:', mapZoom);
-    } else if (originCoords) {
-      // If only origin geocoded, use that
-      originMarker = originCoords;
-      mapCenter = originCoords;
-      mapZoom = 15;
-    } else if (destCoords) {
-      // If only destination geocoded, use that
-      destinationMarker = destCoords;
-      mapCenter = destCoords;
-      mapZoom = 15;
+    const pingsToAdd = [];
+    
+    if (originCoords) {
+      pingsToAdd.push({
+        type: PingTypes.ORIGIN,
+        coordinates: originCoords,
+        label: "Origin",
+        description: providerData.source_address,
+        metadata: { 
+          source: 'provider_search',
+          address: providerData.source_address
+        }
+      });
     }
     
-    // Update map key to force re-render
-    mapKey = Date.now().toString();
+    if (destCoords) {
+      pingsToAdd.push({
+        type: PingTypes.DESTINATION,
+        coordinates: destCoords,
+        label: "Destination", 
+        description: providerData.destination_address,
+        metadata: { 
+          source: 'provider_search',
+          address: providerData.destination_address
+        }
+      });
+    }
+    
+    // Add all pings and focus on them
+    if (pingsToAdd.length > 0) {
+      pingManager.addPings(pingsToAdd, true);
+    }
   }
   
   // Calculate distance between two coordinates in kilometers
@@ -216,73 +270,16 @@
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c;
   }
-  
-
-  async function toggleServiceZone(providerId, providerName, index) {
-    if (visibleZones.has(providerId)) {
-      // Hide the zone
-      visibleZones.delete(providerId);
-      serviceZones = serviceZones.filter(zone => zone.providerId !== providerId);
-      visibleZones = new Set(visibleZones); // Trigger reactivity
-    } else {
-      // Show the zone
-      loadingZones = true;
-      
-      try {
-        const apiPath = window.location.hostname === 'localhost' ? '/providers' : '/api-providers/providers';
-        const response = await fetch(`${BACKEND_URL}${apiPath}/${providerId}/service-zone`);
-        
-        if (response.ok) {
-          const zoneData = await response.json();
-          
-          if (zoneData.has_service_zone && zoneData.raw_data) {
-            const newZone = {
-              providerId: providerId,
-              providerName: providerName,
-              geojson: zoneData.raw_data,
-              style: getZoneStyle(index),
-              index
-            };
-            
-            serviceZones = [...serviceZones, newZone];
-            visibleZones.add(providerId);
-            visibleZones = new Set(visibleZones); // Trigger reactivity
-            
-            console.log(`Loaded service zone for ${providerName}`);
-          }
-        }
-      } catch (error) {
-        console.error(`Error fetching service zone for ${providerName}:`, error);
-      } finally {
-        loadingZones = false;
-      }
-    }
-  }
-  
-  function getZoneStyle(index) {
-    const colors = [
-      '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD',
-      '#D4A5A5', '#9B59B6', '#3498DB', '#E67E22', '#2ECC71'
-    ];
-    
-    const color = colors[index % colors.length];
-    
-    return {
-      color: color,
-      weight: 2,
-      opacity: 0.8,
-      fillOpacity: 0.2,
-      fillColor: color,
-      dashArray: index % 2 ? '5,5' : null // Alternating solid and dashed lines
-    };
-  }
 
   function handleCloseProviderResults() {
     showProviderResults = false;
     viewMode = 'chat'; // Switch back to chat view
-    // Clear service zones and visible zones when closing
-    serviceZones = [];
-    visibleZones = new Set();
+    // Clear service zones when closing
+    serviceZoneManager.clearAllServiceZones();
+    
+    // Clear provider-related pings but keep any address pings
+    pingManager.removePingsByType(PingTypes.ORIGIN);
+    pingManager.removePingsByType(PingTypes.DESTINATION);
     
     // Resume example playback if it was paused
     if (chatComponent) {
@@ -293,8 +290,11 @@
   function backToChat() {
     viewMode = 'chat';
     showProviderResults = false;
-    serviceZones = [];
-    visibleZones = new Set();
+    serviceZoneManager.clearAllServiceZones();
+    
+    // Clear provider-related pings but keep any address pings
+    pingManager.removePingsByType(PingTypes.ORIGIN);
+    pingManager.removePingsByType(PingTypes.DESTINATION);
     
     // Resume example playback if it was paused
     if (chatComponent) {
@@ -302,9 +302,21 @@
     }
   }
   
+  function handleNewConversationStarted() {
+    // Clear all pings when starting a new conversation
+    pingManager.clearAllPings();
+    // Clear service zones
+    serviceZoneManager.clearAllServiceZones();
+    // Reset provider results state
+    showProviderResults = false;
+    viewMode = 'chat';
+  }
   
   async function viewChatExample(example) {
     try {
+      // Clear all existing pings before loading example
+      pingManager.clearAllPings();
+      
       // Fetch the conversation messages and tool calls
       const [messagesResponse, toolCallsResponse] = await Promise.all([
         fetch(`${BACKEND_URL}/api-chat/conversations/${example.conversation_id}/messages`),
@@ -322,13 +334,10 @@
       const messagesData = await messagesResponse.json();
       const toolCallsData = await toolCallsResponse.json();
       
-      console.log('Raw messages data:', messagesData);
-      console.log('Raw tool calls data:', toolCallsData);
       
       // Build conversation states using state reconstruction
       const conversationStates = buildConversationStates(messagesData.messages, toolCallsData.tool_calls);
       
-      console.log('Built conversation states:', conversationStates);
       
       if (chatComponent) {
         // Load the example conversation with state reconstruction
@@ -338,7 +347,6 @@
       // Close the examples panel
       showExamplesPanel = false;
     } catch (error) {
-      console.error('Error loading example conversation:', error);
       examplesError = `Failed to load example: ${error.message}`;
     }
   }
@@ -348,8 +356,6 @@
     const states = [];
     let currentProviders = null;
     
-    console.log('Raw messages from backend:', messages);
-    console.log('Available tool calls:', toolCalls);
     
     // Filter and sort messages chronologically
     const sortedMessages = messages
@@ -360,12 +366,10 @@
         return dateA.getTime() - dateB.getTime();
       });
     
-    console.log('Sorted messages:', sortedMessages.length);
     
     // Find the find_providers tool call if it exists
     if (toolCalls.find_providers && toolCalls.find_providers.length > 0) {
       const providerCall = toolCalls.find_providers[0];
-      console.log('Found provider tool call:', providerCall);
       
       if (providerCall.provider_data) {
         currentProviders = {
@@ -373,7 +377,6 @@
           source_address: providerCall.source_address,
           destination_address: providerCall.destination_address
         };
-        console.log('Provider data extracted:', currentProviders);
       }
     }
     
@@ -403,7 +406,6 @@
         providersAlreadyShown = true;
       }
       
-      console.log(`Message ${i} (${message.role}): "${message.content.substring(0, 50)}..." - isProviderMessage: ${isProviderMessage}, shouldShowProviders: ${shouldShowProviders}`);
       
       states.push({
         message: message,
@@ -442,52 +444,60 @@
       >
           <TileLayer url={'https://tile.openstreetmap.org/{z}/{x}/{y}.png'} />
           
-          <!-- Service Zones -->
-          {#each serviceZones as zone}
-            {#if zone.geojson}
+          <!-- Service Zones from Service Zone Manager -->
+          {#each $visibleServiceZones as zone (zone.id)}
+            {#if zone.geoJson}
               <GeoJSON
-                json={zone.geojson}
+                json={zone.geoJson}
                 options={{
-                  style: () => zone.style,
+                  style: () => zone.config,
                   onEachFeature: (feature, layer) => {
                     layer.on({
                       mouseover: (e) => {
                         const layer = e.target;
                         layer.setStyle({
-                          weight: 3,
-                          opacity: 1,
-                          fillOpacity: 0.4
+                          weight: zone.config.weight + 1,
+                          opacity: Math.min(zone.config.opacity + 0.2, 1),
+                          fillOpacity: Math.min(zone.config.fillOpacity + 0.2, 0.6)
                         });
                         layer.bringToFront();
                       },
                       mouseout: (e) => {
                         const layer = e.target;
-                        layer.setStyle(zone.style);
+                        layer.setStyle(zone.config);
+                      },
+                      click: (e) => {
+                        // Focus on clicked zone
+                        serviceZoneManager.focusOnServiceZone(zone.id);
                       }
                     });
                     
-                    // Bind popup with provider name
-                    layer.bindPopup(`
-                      <div class="text-sm">
-                        <strong>${zone.providerName}</strong><br/>
-                        Service Zone
+                    // Enhanced popup with zone information
+                    const popupContent = `
+                      <div class="service-zone-popup">
+                        <div class="zone-popup-header">
+                          <strong>${zone.label}</strong>
+                          <span class="zone-type">${zone.type}</span>
+                        </div>
+                        ${zone.description ? `<div class="zone-popup-description">${zone.description}</div>` : ''}
+                        ${zone.metadata?.provider?.provider_org ? `<div class="zone-popup-org">🏢 ${zone.metadata.provider.provider_org}</div>` : ''}
+                        ${zone.metadata?.provider?.eligibility_req ? `<div class="zone-popup-eligibility">📋 ${zone.metadata.provider.eligibility_req}</div>` : ''}
                       </div>
-                    `);
+                    `;
+                    layer.bindPopup(popupContent);
                   }
                 }}
               />
             {/if}
           {/each}
           
-          <!-- Origin Marker -->
-          {#if originMarker}
-            <Marker latLng={originMarker} popup="Origin" />
-          {/if}
-          
-          <!-- Destination Marker -->
-          {#if destinationMarker && (originMarker[0] !== destinationMarker[0] || originMarker[1] !== destinationMarker[1])}
-            <Marker latLng={destinationMarker} popup="Destination" />
-          {/if}
+          <!-- Ping-based Markers -->
+          {#each $pings.filter(ping => ping.visible) as ping (ping.id)}
+            <Marker 
+              latLng={ping.coordinates}
+              popup={ping.description || ping.label}
+            />
+          {/each}
       </Map>
     {/key}
   </div>
@@ -604,12 +614,6 @@
                   <p class="text-sm text-gray-600">
                     {providerData?.data?.length || 0} provider{(providerData?.data?.length || 0) !== 1 ? 's' : ''} found
                   </p>
-                  {#if loadingZones}
-                    <div class="flex items-center space-x-1 text-xs text-blue-600">
-                      <div class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
-                      <span>Loading zones...</span>
-                    </div>
-                  {/if}
                 </div>
               </div>
             </div>
@@ -622,6 +626,7 @@
             bind:this={chatComponent}
             on:providersFound={handleProvidersFound}
             on:addressFound={handleAddressFound}
+            on:newConversationStarted={handleNewConversationStarted}
           />
         </div>
         
@@ -629,12 +634,9 @@
         <div class="flex-1 min-h-0 rounded-b-2xl overflow-hidden" class:hidden={viewMode !== 'providers'} in:fly={{ x: 30, duration: 400, delay: 100 }}>
           <ProviderResults 
             {providerData}
-            {loadingZones}
-            {visibleZones}
             show={viewMode === 'providers'}
             embedded={true}
             on:close={handleCloseProviderResults}
-            on:toggleZone={(event) => toggleServiceZone(event.detail.providerId, event.detail.providerName, event.detail.index)}
           />
         </div>
         
@@ -669,5 +671,41 @@
   :global(.leaflet-container) {
     height: 100vh !important;
     width: 100vw !important;
+  }
+  
+  /* Service zone popup styling */
+  :global(.service-zone-popup) {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 250px;
+  }
+  
+  :global(.zone-popup-header) {
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  
+  :global(.zone-type) {
+    background: #f3f4f6;
+    color: #6b7280;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+  
+  :global(.zone-popup-description) {
+    font-size: 13px;
+    color: #4b5563;
+    margin-bottom: 4px;
+  }
+  
+  :global(.zone-popup-org),
+  :global(.zone-popup-eligibility) {
+    font-size: 12px;
+    color: #6b7280;
+    margin-bottom: 2px;
   }
 </style>

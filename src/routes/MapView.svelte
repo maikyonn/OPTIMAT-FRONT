@@ -1,21 +1,31 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { fade, fly, scale } from 'svelte/transition';
   import TransportationForm from '../components/TransportationForm.svelte';
+  import ServiceZoneControls from '../components/ServiceZoneControls.svelte';
   import { Map, TileLayer, Marker, Popup, GeoJSON } from 'sveaflet';
   import { BACKEND_URL } from '../config';
+  import { pingManager, PingTypes, pings, mapFocus, visiblePings } from '../lib/pingManager.js';
+  import { serviceZoneManager, ServiceZoneTypes, visibleServiceZones } from '../lib/serviceZoneManager.js';
 
   let loading = false;
   let error = null;
   let responseData = null;
-  let originMarker = null;
-  let destinationMarker = null;
   let showForm = false;
   let formPosition = 'form'; // 'form' or 'results'
+  let mapComponent = null;
 
   // Animation state
   let mounted = false;
+  
+  // Map state derived from ping manager
+  $: mapCenter = $mapFocus.center;
+  $: mapZoom = $mapFocus.zoom;
+  $: shouldUpdateMap = $mapFocus.shouldFocus;
+  
+  // Create a reactive key for map updates when focus changes
+  $: mapKey = shouldUpdateMap ? `${mapCenter[0]}-${mapCenter[1]}-${mapZoom}-${Date.now()}` : 'static';
   
   onMount(() => {
     mounted = true;
@@ -23,39 +33,24 @@
     setTimeout(() => {
       showForm = true;
     }, 500);
+    
+    // Initialize with default San Francisco Bay Area view
+    pingManager.focusOnCoordinates([37.7749, -122.4194], 10);
   });
 
-  // Calculate the center point between two coordinates
-  function calculateCenter(coord1, coord2) {
-    const lat = (coord1[0] + coord2[0]) / 2;
-    const lng = (coord1[1] + coord2[1]) / 2;
-    return [lat, lng];
+  onDestroy(() => {
+    // Clean up pings and service zones when leaving the component
+    pingManager.clearAllPings();
+    serviceZoneManager.clearAllServiceZones();
+  });
+
+  // Reset focus trigger after map update
+  $: if (shouldUpdateMap && mapComponent) {
+    // Reset the focus trigger after a brief delay
+    setTimeout(() => {
+      pingManager.resetFocus();
+    }, 100);
   }
-
-  // Calculate zoom level to fit both markers
-  function calculateZoom(coord1, coord2) {
-    const R = 6371e3;
-    const φ1 = coord1[0] * Math.PI/180;
-    const φ2 = coord2[0] * Math.PI/180;
-    const Δφ = (coord2[0]-coord1[0]) * Math.PI/180;
-    const Δλ = (coord2[1]-coord1[1]) * Math.PI/180;
-
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distance = R * c;
-
-    if (distance > 10000) return 11;
-    if (distance > 5000) return 12;
-    if (distance > 2000) return 13;
-    if (distance > 1000) return 14;
-    return 15;
-  }
-
-  $: mapCenter = calculateCenter(originMarker, destinationMarker);
-  $: mapZoom = calculateZoom(originMarker, destinationMarker);
-  $: mapKey = [...originMarker, ...destinationMarker].join(',');
 
   async function geocodeAddress(address) {
     try {
@@ -83,7 +78,23 @@
     const address = event.detail;
     const coordinates = await geocodeAddress(address);
     if (coordinates) {
-      originMarker = coordinates;
+      // Remove existing origin ping
+      pingManager.removePingsByType(PingTypes.ORIGIN);
+      
+      // Add new origin ping
+      pingManager.addPing({
+        type: PingTypes.ORIGIN,
+        coordinates: coordinates,
+        label: 'Origin',
+        description: address,
+        metadata: { address }
+      }, false); // Don't auto-focus
+      
+      // Focus on both origin and destination if both exist
+      const destinationPings = pingManager.getPingsByType(PingTypes.DESTINATION);
+      if (destinationPings.length > 0) {
+        pingManager.focusOnAllPings();
+      }
     }
   }
 
@@ -91,7 +102,23 @@
     const address = event.detail;
     const coordinates = await geocodeAddress(address);
     if (coordinates) {
-      destinationMarker = coordinates;
+      // Remove existing destination ping
+      pingManager.removePingsByType(PingTypes.DESTINATION);
+      
+      // Add new destination ping
+      pingManager.addPing({
+        type: PingTypes.DESTINATION,
+        coordinates: coordinates,
+        label: 'Destination',
+        description: address,
+        metadata: { address }
+      }, false); // Don't auto-focus
+      
+      // Focus on both origin and destination if both exist
+      const originPings = pingManager.getPingsByType(PingTypes.ORIGIN);
+      if (originPings.length > 0) {
+        pingManager.focusOnAllPings();
+      }
     }
   }
 
@@ -142,6 +169,34 @@
       const data = JSON.parse(responseText);
       responseData = { data };
       formPosition = 'results';
+      
+      // Clear existing provider pings and service zones
+      pingManager.removePingsByType(PingTypes.PROVIDER);
+      serviceZoneManager.clearAllServiceZones();
+      
+      // Add provider location pings and service zones if available
+      if (data && data.length > 0) {
+        // Add provider location pings
+        const providerPings = data
+          .filter(provider => provider.latitude && provider.longitude)
+          .map(provider => ({
+            type: PingTypes.PROVIDER,
+            coordinates: [parseFloat(provider.latitude), parseFloat(provider.longitude)],
+            label: provider.provider_name,
+            description: `${provider.provider_name}\nType: ${provider.provider_type}`,
+            metadata: { provider }
+          }));
+        
+        if (providerPings.length > 0) {
+          pingManager.addPings(providerPings, false);
+        }
+
+        // Add service zones using the new service zone manager
+        serviceZoneManager.addProviderServiceZones(data, false);
+        
+        // Focus on both pings and service zones
+        serviceZoneManager.focusOnZonesAndPings();
+      }
     } catch (err) {
       error = err.message;
       console.error('Error:', err);
@@ -158,39 +213,20 @@
     responseData = null;
     error = null;
     formPosition = 'form';
-  }
-
-  // Array of colors for service zones
-  const zoneColors = [
-    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEEAD',
-    '#D4A5A5', '#9B59B6', '#3498DB', '#E67E22', '#2ECC71'
-  ];
-
-  function parseServiceZone(zoneString) {
-    try {
-      return JSON.parse(zoneString);
-    } catch (e) {
-      console.error('Error parsing service zone:', e);
-      return null;
+    
+    // Clear provider pings and service zones but keep origin/destination
+    pingManager.removePingsByType(PingTypes.PROVIDER);
+    serviceZoneManager.clearAllServiceZones();
+    
+    // Refocus on origin/destination if they exist
+    const originPings = pingManager.getPingsByType(PingTypes.ORIGIN);
+    const destinationPings = pingManager.getPingsByType(PingTypes.DESTINATION);
+    if (originPings.length > 0 || destinationPings.length > 0) {
+      pingManager.focusOnAllPings();
     }
   }
 
-  function getZoneStyle(index) {
-    return {
-      color: zoneColors[index % zoneColors.length],
-      weight: 2,
-      opacity: 0.8,
-      fillOpacity: 0.2,
-      fillColor: zoneColors[index % zoneColors.length],
-      dashArray: index % 2 ? '3' : null
-    };
-  }
-
-  $: serviceZones = responseData?.data?.map((provider, index) => ({
-    geojson: parseServiceZone(provider.service_zone),
-    name: provider.provider_name,
-    style: getZoneStyle(index)
-  })) || [];
+  // Service zones are now managed by serviceZoneManager
 </script>
 
 {#if mounted}
@@ -199,6 +235,7 @@
     class="fixed top-6 left-6 z-50 bg-white/90 backdrop-blur-sm hover:bg-white text-gray-700 p-3 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-200"
     on:click={goHome}
     in:fly={{ x: -50, duration: 600, delay: 200 }}
+    aria-label="Go back to home page"
   >
     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
@@ -209,6 +246,7 @@
   <div class="fixed inset-0 z-0" in:fade={{ duration: 800 }}>
     {#key mapKey}
       <Map
+        bind:this={mapComponent}
         options={{
           center: mapCenter,
           zoom: mapZoom
@@ -216,30 +254,60 @@
       >
         <TileLayer url={'https://tile.openstreetmap.org/{z}/{x}/{y}.png'} />
         
-        {#each serviceZones as zone}
-          {#if zone.geojson}
+        <!-- Service Zones from Service Zone Manager -->
+        {#each $visibleServiceZones as zone (zone.id)}
+          {#if zone.geoJson}
             <GeoJSON
-              json={zone.geojson}
+              json={zone.geoJson}
               options={{
-                style: () => zone.style,
+                style: () => ({
+                  color: zone.config.color,
+                  weight: zone.config.weight,
+                  opacity: zone.config.opacity,
+                  fillOpacity: zone.config.fillOpacity,
+                  fillColor: zone.config.color,
+                  dashArray: zone.config.dashArray
+                }),
                 onEachFeature: (feature, layer) => {
+                  // Enhanced hover effects
                   layer.on({
                     mouseover: (e) => {
                       const layer = e.target;
                       layer.setStyle({
-                        weight: 3,
-                        opacity: 1,
-                        fillOpacity: 0.4
+                        weight: zone.config.weight + 1,
+                        opacity: Math.min(zone.config.opacity + 0.2, 1),
+                        fillOpacity: Math.min(zone.config.fillOpacity + 0.2, 0.6)
                       });
                       layer.bringToFront();
                     },
                     mouseout: (e) => {
                       const layer = e.target;
-                      layer.setStyle(zone.style);
+                      layer.setStyle({
+                        weight: zone.config.weight,
+                        opacity: zone.config.opacity,
+                        fillOpacity: zone.config.fillOpacity
+                      });
+                    },
+                    click: (e) => {
+                      // Focus on clicked zone
+                      serviceZoneManager.focusOnServiceZone(zone.id);
                     }
                   });
-                  if (feature.properties && feature.properties.name) {
-                    layer.bindPopup(feature.properties.name);
+                  
+                  // Enhanced popup with zone information
+                  if (zone.config.popup) {
+                    const popupContent = `
+                      <div class="service-zone-popup">
+                        <div class="zone-popup-header">
+                          <strong>${zone.label}</strong>
+                          <span class="zone-type">${zone.type}</span>
+                        </div>
+                        ${zone.description ? `<div class="zone-popup-description">${zone.description}</div>` : ''}
+                        ${zone.metadata?.provider?.provider_org ? `<div class="zone-popup-org">🏢 ${zone.metadata.provider.provider_org}</div>` : ''}
+                        ${zone.metadata?.provider?.eligibility_req ? `<div class="zone-popup-eligibility">📋 ${zone.metadata.provider.eligibility_req}</div>` : ''}
+                      </div>
+                    `;
+                    layer.bindPopup(popupContent);
                   }
                 }
               }}
@@ -247,12 +315,42 @@
           {/if}
         {/each}
 
-        {#if originMarker}
-          <Marker latLng={originMarker} popup="Origin" />
-        {/if}
-        {#if destinationMarker}
-          <Marker latLng={destinationMarker} popup="Destination" />
-        {/if}
+        <!-- Pings from Ping Manager -->
+        {#each $visiblePings as ping (ping.id)}
+          <Marker 
+            latLng={ping.coordinates}
+            popup={ping.description || ping.label}
+            options={{
+              title: ping.label,
+              zIndexOffset: ping.config.zIndex || 0
+            }}
+          >
+            <!-- Custom popup content -->
+            <Popup>
+              <div class="ping-popup">
+                <div class="ping-popup-header">
+                  <span class="ping-icon">{ping.config.icon}</span>
+                  <strong>{ping.label}</strong>
+                </div>
+                {#if ping.description}
+                  <div class="ping-popup-description">
+                    {ping.description}
+                  </div>
+                {/if}
+                {#if ping.metadata?.address}
+                  <div class="ping-popup-address">
+                    📍 {ping.metadata.address}
+                  </div>
+                {/if}
+                {#if ping.metadata?.provider}
+                  <div class="ping-popup-provider">
+                    🚌 {ping.metadata.provider.provider_type}
+                  </div>
+                {/if}
+              </div>
+            </Popup>
+          </Marker>
+        {/each}
       </Map>
     {/key}
   </div>
@@ -307,6 +405,9 @@
       </div>
     </div>
   {/if}
+
+  <!-- Service Zone Controls -->
+  <ServiceZoneControls />
 {/if}
 
 <style>
@@ -317,5 +418,85 @@
   :global(.leaflet-container) {
     height: 100vh !important;
     width: 100vw !important;
+  }
+  
+  /* Ping popup styling */
+  :global(.ping-popup) {
+    min-width: 200px;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  
+  :global(.ping-popup-header) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 16px;
+  }
+  
+  :global(.ping-icon) {
+    font-size: 18px;
+  }
+  
+  :global(.ping-popup-description) {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 6px;
+    white-space: pre-line;
+  }
+  
+  :global(.ping-popup-address) {
+    color: #374151;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+  
+  :global(.ping-popup-provider) {
+    color: #3b82f6;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  /* Service zone popup styling */
+  :global(.service-zone-popup) {
+    min-width: 220px;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  
+  :global(.zone-popup-header) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 16px;
+  }
+  
+  :global(.zone-type) {
+    background: #f3f4f6;
+    color: #374151;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: capitalize;
+  }
+  
+  :global(.zone-popup-description) {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 6px;
+    white-space: pre-line;
+  }
+  
+  :global(.zone-popup-org) {
+    color: #374151;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+  
+  :global(.zone-popup-eligibility) {
+    color: #059669;
+    font-size: 13px;
+    font-weight: 500;
   }
 </style>

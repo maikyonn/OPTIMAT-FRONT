@@ -34,7 +34,6 @@
     }
     
     // TODO: Add API call to save beta tester info
-    console.log('Beta signup submitted:', { name, phoneNumber });
     submitted = true;
   }
   
