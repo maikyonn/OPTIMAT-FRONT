@@ -13,6 +13,7 @@
   let highlightLayerId = null;
   const tripLayers = new Map();
   let pendingTripSelection = null;
+  let isClient = false;
 
   const baseMapUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
   const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
@@ -29,6 +30,8 @@
   }
 
   onMount(async () => {
+    isClient = true;
+    await tick();
     await loadTrips();
   });
 
@@ -161,7 +164,7 @@
   <title>Trip History | OPTIMAT</title>
 </svelte:head>
 
-<div class="trip-history-page">
+  <div class="trip-history-page">
   <div class="header" in:fade={{ duration: 400 }}>
     <h1>Tri Delta Transit Trip History</h1>
     <p>Explore historical paratransit trips completed through Tri Delta Transit.</p>
@@ -180,51 +183,53 @@
   {:else}
     <div class="content" in:fade={{ duration: 300 }}>
       <div class="map-container" in:fly={{ y: 40, duration: 400 }}>
-        <Map
-          bind:this={mapRef}
-          options={{
-            center: defaultCenter,
-            zoom: defaultZoom,
-            zoomControl: true
-          }}
-        >
-          <TileLayer url={baseMapUrl} options={{ attribution }} />
+        {#if isClient}
+          <Map
+            bind:this={mapRef}
+            options={{
+              center: defaultCenter,
+              zoom: defaultZoom,
+              zoomControl: true
+            }}
+          >
+            <TileLayer url={baseMapUrl} options={{ attribution }} />
 
-          {#if tripGeoJson}
-            <GeoJSON
-              json={tripGeoJson}
-              options={{
-                style: () => defaultStyle,
-                onEachFeature: handleFeature
-              }}
-            />
-          {/if}
+            {#if tripGeoJson}
+              <GeoJSON
+                json={tripGeoJson}
+                options={{
+                  style: () => defaultStyle,
+                  onEachFeature: handleFeature
+                }}
+              />
+            {/if}
 
-          {#if selectedTrip}
-            <Marker
-              latLng={[selectedTrip.origin_latitude, selectedTrip.origin_longitude]}
-            >
-              <Popup>
-                <div class="popup-content">
-                  <strong>Origin</strong>
-                  <div>{selectedTrip.origin_address}</div>
-                  <div class="city">{selectedTrip.origin_city}</div>
-                </div>
-              </Popup>
-            </Marker>
-            <Marker
-              latLng={[selectedTrip.destination_latitude, selectedTrip.destination_longitude]}
-            >
-              <Popup>
-                <div class="popup-content">
-                  <strong>Destination</strong>
-                  <div>{selectedTrip.destination_address}</div>
-                  <div class="city">{selectedTrip.destination_city}</div>
-                </div>
-              </Popup>
-            </Marker>
-          {/if}
-        </Map>
+            {#if selectedTrip}
+              <Marker
+                latLng={[selectedTrip.origin_latitude, selectedTrip.origin_longitude]}
+              >
+                <Popup>
+                  <div class="popup-content">
+                    <strong>Origin</strong>
+                    <div>{selectedTrip.origin_address}</div>
+                    <div class="city">{selectedTrip.origin_city}</div>
+                  </div>
+                </Popup>
+              </Marker>
+              <Marker
+                latLng={[selectedTrip.destination_latitude, selectedTrip.destination_longitude]}
+              >
+                <Popup>
+                  <div class="popup-content">
+                    <strong>Destination</strong>
+                    <div>{selectedTrip.destination_address}</div>
+                    <div class="city">{selectedTrip.destination_city}</div>
+                  </div>
+                </Popup>
+              </Marker>
+            {/if}
+          </Map>
+        {/if}
       </div>
 
       <aside class="details" in:fly={{ x: 40, duration: 400 }}>
