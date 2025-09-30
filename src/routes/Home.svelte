@@ -17,6 +17,10 @@
     push('/chat');
   }
 
+  function navigateToTripHistory() {
+    push('/trip-history');
+  }
+
   const apiLinks = [
     {
       title: 'Provider Map',
@@ -77,7 +81,7 @@
       </div>
 
       <!-- Main Action Cards -->
-      <div class="grid md:grid-cols-2 gap-6 md:gap-8" in:fly={{ y: 50, duration: 800, delay: 800 }}>
+      <div class="grid md:grid-cols-3 gap-6 md:gap-8" in:fly={{ y: 50, duration: 800, delay: 800 }}>
         <!-- Map Option -->
         <div class="group cursor-pointer" role="button" tabindex="0" on:click={navigateToMap} on:keypress={navigateToMap}>
           <div class="bg-white rounded-xl shadow-lg p-6 md:p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-xl border border-gray-100">
@@ -105,6 +109,22 @@
               </p>
               <div class="bg-green-600 text-white px-6 py-3 rounded-lg text-sm font-semibold transform transition-all duration-300 group-hover:bg-green-700 inline-block">
                 Start Conversation
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trip History Option -->
+        <div class="group cursor-pointer" role="button" tabindex="0" on:click={navigateToTripHistory} on:keypress={navigateToTripHistory}>
+          <div class="bg-white rounded-xl shadow-lg p-6 md:p-8 transform transition-all duration-300 hover:scale-105 hover:shadow-xl border border-gray-100">
+            <div class="text-center">
+              <div class="text-4xl md:text-5xl mb-4 transform transition-transform duration-300 group-hover:scale-110">🧭</div>
+              <h3 class="text-lg md:text-xl font-bold text-gray-900 mb-3">Trip History</h3>
+              <p class="text-sm text-gray-600 mb-6">
+                Visualize historic Tri Delta Transit trips to understand service patterns across the region.
+              </p>
+              <div class="bg-orange-500 text-white px-6 py-3 rounded-lg text-sm font-semibold transform transition-all duration-300 group-hover:bg-orange-600 inline-block">
+                Explore Trips
               </div>
             </div>
           </div>

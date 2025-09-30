@@ -2,6 +2,7 @@ import Home from './routes/Home.svelte';
 import MapView from './routes/MapView.svelte';
 import ChatView from './routes/ChatView.svelte';
 import BetaSignup from './routes/BetaSignup.svelte';
+import TripHistory from './routes/TripHistory.svelte';
 
 const routes = {
   // Home page
@@ -9,6 +10,9 @@ const routes = {
   
   // Map interface
   '/map': MapView,
+  
+  // Historical trip explorer
+  '/trip-history': TripHistory,
   
   // Chat interface with integrated examples
   '/chat': ChatView,
