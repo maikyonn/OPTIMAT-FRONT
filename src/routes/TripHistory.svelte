@@ -119,6 +119,11 @@
     return mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
   }
 
+  function maskAddress(address) {
+    if (!address) return '';
+    return String(address).replace(/\d/g, '•');
+  }
+
   function goHome() {
     push('/');
   }
@@ -403,11 +408,11 @@
               <div class="trip-id">Trip #{trip.trip_id}</div>
               <div class="trip-route">
                 <div class="trip-label">Origin</div>
-                <div class="trip-address">{trip.origin_address}, {trip.origin_city}</div>
+                <div class="trip-address">{maskAddress(trip.origin_address)}, {trip.origin_city}</div>
               </div>
               <div class="trip-route">
                 <div class="trip-label">Destination</div>
-                <div class="trip-address">{trip.destination_address}, {trip.destination_city}</div>
+                <div class="trip-address">{maskAddress(trip.destination_address)}, {trip.destination_city}</div>
               </div>
               <div class="trip-meta">
                 <span>{formatDuration(trip.duration_hours)}</span>
@@ -520,7 +525,7 @@
                   <div>
                     <span class="route-leg-title">Leg {index + 1}</span>
                     {#if leg.start_address && leg.end_address}
-                      <p class="route-leg-addresses">{leg.start_address} → {leg.end_address}</p>
+                      <p class="route-leg-addresses">{maskAddress(leg.start_address)} → {maskAddress(leg.end_address)}</p>
                     {/if}
                   </div>
                   <div class="route-leg-metrics">
