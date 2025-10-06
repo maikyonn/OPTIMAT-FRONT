@@ -554,15 +554,4 @@
     }
   }
 
-  .popup-content {
-    min-width: 180px;
-    font-family: system-ui, -apple-system, sans-serif;
-    font-size: 0.9rem;
-    color: #1f2937;
-  }
-
-  .popup-content strong {
-    display: block;
-    margin-bottom: 0.25rem;
-  }
 </style>
