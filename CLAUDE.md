@@ -67,8 +67,8 @@ The application uses hash-based routing via svelte-spa-router:
 ### API Integration
 
 The frontend communicates with two backend services:
-- **Provider API**: Expected at `/api-providers/` (for transportation provider data)
-- **Chat API**: Expected at `/api-chat/` (for chat functionality)
+- **Provider API**: Served from `https://api-providers.optimat.us` (transportation provider data)
+- **Chat API**: Served from `https://api-chat.optimat.us` (chat and examples)
 
 Configure the API endpoints in `src/config.js` if present.
 

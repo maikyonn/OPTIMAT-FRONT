@@ -1,10 +1,12 @@
 <script>
   import { onMount } from 'svelte';
-  import { BACKEND_URL } from '../config';
+  import { PROVIDERS_API_BASE } from '../config';
   import { fly, fade } from 'svelte/transition';
   import { flip } from 'svelte/animate';
   import { serviceZoneManager } from '../lib/serviceZoneManager.js';
   
+  const API_BASE = PROVIDERS_API_BASE;
+
   export let highlightedProviders = new Set(); // Provider IDs to highlight from chat results
   
   let providers = [];
@@ -31,8 +33,7 @@
     error = null;
     
     try {
-      const apiPath = window.location.hostname === 'localhost' ? '/providers/' : '/api-providers/providers/';
-      const response = await fetch(`${BACKEND_URL}${apiPath}`);
+      const response = await fetch(`${API_BASE}/providers/`);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch providers: ${response.status}`);
@@ -122,8 +123,7 @@
           }
         } else {
           // Try to fetch from API if no service zone data
-          const apiPath = window.location.hostname === 'localhost' ? '/providers' : '/api-providers/providers';
-          const response = await fetch(`${BACKEND_URL}${apiPath}/${providerId}/service-zone`);
+          const response = await fetch(`${API_BASE}/providers/${providerId}/service-zone`);
           
           if (response.ok) {
             const zoneData = await response.json();

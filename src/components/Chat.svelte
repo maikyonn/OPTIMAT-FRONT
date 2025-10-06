@@ -1,9 +1,10 @@
 <script>
     import { onMount, createEventDispatcher } from 'svelte';
-    import { BACKEND_URL } from '../config';
+    import { PROVIDERS_API_BASE, CHAT_API_URL } from '../config';
     import { fade, fly, slide } from 'svelte/transition';
     import { serviceZoneManager } from '../lib/serviceZoneManager.js';
-    
+    const PROVIDER_API_BASE = PROVIDERS_API_BASE;
+    const CHAT_API_BASE = CHAT_API_URL;
     const dispatch = createEventDispatcher();
     
     // Typewriter effect component
@@ -237,8 +238,7 @@
                     }
                 } else {
                     // Fallback: try to fetch from API if no service zone data
-                    const apiPath = window.location.hostname === 'localhost' ? '/providers' : '/api-providers/providers';
-                    const response = await fetch(`${BACKEND_URL}${apiPath}/${providerId}/service-zone`);
+                    const response = await fetch(`${PROVIDER_API_BASE}/providers/${providerId}/service-zone`);
                     
                     if (response.ok) {
                         const zoneData = await response.json();
@@ -347,7 +347,7 @@
 
     async function checkServerHealth() {
       try {
-        const response = await fetch(`${BACKEND_URL}/api-chat/health`);
+        const response = await fetch(`${CHAT_API_BASE}/health`);
         serverOnline = response.ok;
         if (!serverOnline) {
           error = "Chat server is currently offline.";
@@ -362,7 +362,7 @@
       initializing = true;
       error = null;
       try {
-        const response = await fetch(`${BACKEND_URL}/api-chat/conversations`, {
+        const response = await fetch(`${CHAT_API_BASE}/conversations`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -438,7 +438,7 @@
       scrollToBottom();
   
       try {
-        const response = await fetch(`${BACKEND_URL}/api-chat/enhanced`, {
+                const response = await fetch(`${CHAT_API_BASE}/enhanced`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -736,7 +736,7 @@
           ? exampleForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
           : [];
 
-        const response = await fetch(`${BACKEND_URL}/api-chat/conversations/${conversationId}/add-to-examples`, {
+                const response = await fetch(`${CHAT_API_BASE}/conversations/${conversationId}/add-to-examples`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

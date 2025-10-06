@@ -5,7 +5,7 @@
   import TransportationForm from '../components/TransportationForm.svelte';
   import ServiceZoneControls from '../components/ServiceZoneControls.svelte';
   import { Map, TileLayer, Marker, Popup, GeoJSON } from 'sveaflet';
-  import { BACKEND_URL } from '../config';
+  import { PROVIDERS_API_BASE } from '../config';
   import { pingManager, PingTypes, pings, mapFocus, visiblePings } from '../lib/pingManager.js';
   import { serviceZoneManager, ServiceZoneTypes, visibleServiceZones } from '../lib/serviceZoneManager.js';
 
@@ -52,10 +52,11 @@
     }, 100);
   }
 
+  const API_BASE = PROVIDERS_API_BASE;
+
   async function geocodeAddress(address) {
     try {
-      const apiPath = window.location.hostname === 'localhost' ? '/providers/geocode' : '/api-providers/providers/geocode';
-      const url = `${BACKEND_URL}${apiPath}?address=${encodeURIComponent(address)}`;
+      const url = `${API_BASE}/providers/geocode?address=${encodeURIComponent(address)}`;
       
       const response = await fetch(url);
       const data = await response.json();
@@ -129,8 +130,8 @@
     responseData = null;
     
     try {
-      const apiPath = window.location.hostname === 'localhost' ? '/providers/filter' : '/api-providers/providers/filter';
-      
+      const apiUrl = `${API_BASE}/providers/filter`;
+
       // Build the request body with all filter fields
       const requestBody = {
         source_address: formData.originAddress,
@@ -148,7 +149,7 @@
       if (formData.isOperating !== null) requestBody.is_operating = formData.isOperating;
       if (formData.hasServiceZone !== null) requestBody.has_service_zone = formData.hasServiceZone;
       
-      const response = await fetch(`${BACKEND_URL}${apiPath}`, {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

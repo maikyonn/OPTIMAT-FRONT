@@ -6,7 +6,7 @@
   import ProviderResults from '../components/ProviderResults.svelte';
   import ProviderListPanel from '../components/ProviderListPanel.svelte';
   import { Map, TileLayer, Marker, GeoJSON, Polyline } from 'sveaflet';
-  import { BACKEND_URL } from '../config';
+  import { PROVIDERS_API_BASE, CHAT_API_URL } from '../config';
   import { pingManager, PingTypes, pings, mapFocus } from '../lib/pingManager.js';
   import { serviceZoneManager, visibleServiceZones } from '../lib/serviceZoneManager.js';
   import { derived } from 'svelte/store';
@@ -143,9 +143,12 @@
     }
   }
   
+  const PROVIDER_API_BASE = PROVIDERS_API_BASE;
+  const CHAT_API_BASE = CHAT_API_URL;
+
   async function checkServerHealth() {
     try {
-      const response = await fetch(`${BACKEND_URL}/api-chat/health`);
+      const response = await fetch(`${CHAT_API_BASE}/health`);
       serverOnline = response.ok;
       if (!serverOnline) {
         examplesError = "Chat server is currently offline.";
@@ -161,7 +164,7 @@
     examplesError = null;
     
     try {
-      const response = await fetch(`${BACKEND_URL}/api-chat/chat-examples?is_active=true`);
+      const response = await fetch(`${CHAT_API_BASE}/chat-examples?is_active=true`);
       
       if (!response.ok) {
         throw new Error(`Failed to load examples: ${response.status}`);
@@ -182,8 +185,7 @@
 
   async function geocodeAddress(address) {
     try {
-      const apiPath = window.location.hostname === 'localhost' ? '/providers/geocode' : '/api-providers/providers/geocode';
-      const url = `${BACKEND_URL}${apiPath}?address=${encodeURIComponent(address)}`;
+      const url = `${PROVIDER_API_BASE}/providers/geocode?address=${encodeURIComponent(address)}`;
       
       const response = await fetch(url);
       const data = await response.json();
@@ -424,8 +426,8 @@
       
       // Fetch the conversation messages and tool calls
       const [messagesResponse, toolCallsResponse] = await Promise.all([
-        fetch(`${BACKEND_URL}/api-chat/conversations/${example.conversation_id}/messages`),
-        fetch(`${BACKEND_URL}/api-chat/conversations/${example.conversation_id}/tool-calls`)
+        fetch(`${CHAT_API_BASE}/conversations/${example.conversation_id}/messages`),
+        fetch(`${CHAT_API_BASE}/conversations/${example.conversation_id}/tool-calls`)
       ]);
       
       if (!messagesResponse.ok) {

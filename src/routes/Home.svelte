@@ -25,31 +25,31 @@
     {
       title: 'Provider Map',
       description: 'Interactive map of service providers',
-      url: 'https://optimat.us/api-providers/providers/map',
+      url: 'https://api-providers.optimat.us/providers/map',
       icon: '🗺️'
     },
     {
       title: 'Provider API Docs',
       description: 'Provider matching API documentation',
-      url: 'https://optimat.us/api-providers/docs',
+      url: 'https://api-providers.optimat.us/docs',
       icon: '📚'
     },
     {
       title: 'Chat Interface',
       description: 'AI-powered transportation assistant',
-      url: 'https://optimat.us/api-chat/',
+      url: 'https://api-chat.optimat.us/',
       icon: '💬'
     },
     {
       title: 'Chat API Docs',
       description: 'Chat API documentation',
-      url: 'https://optimat.us/api-chat/docs',
+      url: 'https://api-chat.optimat.us/docs',
       icon: '📖'
     },
     {
       title: 'Admin Logs',
       description: 'Chat conversation logs',
-      url: 'https://optimat.us/api-chat/admin/logs',
+      url: 'https://api-chat.optimat.us/admin/logs',
       icon: '📊'
     }
   ];
